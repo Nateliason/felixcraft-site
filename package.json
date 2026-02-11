@@ -1,0 +1,9 @@
+{
+  "name": "felixcraft-site",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "stripe": "^17.5.0",
+    "resend": "^4.0.1"
+  }
+}
