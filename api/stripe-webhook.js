@@ -2,7 +2,12 @@ import Stripe from 'stripe';
 import { Resend } from 'resend';
 import { buffer } from 'micro';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+// Support both org keys (with Stripe-Context) and regular keys
+const stripeConfig = {};
+if (process.env.STRIPE_ACCOUNT_CONTEXT) {
+  stripeConfig.stripeAccount = process.env.STRIPE_ACCOUNT_CONTEXT;
+}
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, stripeConfig);
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 // Disable Vercel's default body parsing — Stripe needs the raw body for signature verification
