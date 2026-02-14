@@ -843,8 +843,18 @@
 
         if (confirmed) {
           setStatus('✓ Payment confirmed on-chain!', 'var(--green)');
-          btn.textContent = 'Redirecting to download...';
-          setTimeout(() => { window.location.href = DOWNLOAD_PATH; }, 1500);
+          btn.style.display = 'none';
+          // Ask for email to send download link
+          statusEl().innerHTML = `
+            <div style="margin:1rem 0">
+              <p style="font-size:0.85rem;color:var(--green);margin-bottom:1rem">✓ Payment confirmed on-chain!</p>
+              <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem">Enter your email to get your download link (so you can access it anytime):</p>
+              <div style="display:flex;gap:0.5rem">
+                <input type="email" id="crypto-email" placeholder="you@example.com" style="flex:1;padding:0.75rem;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:6px;color:#e8e8e8;font-family:inherit;font-size:0.9rem">
+                <button onclick="sendCryptoEmail('${txHash}')" style="width:auto;padding:0.75rem 1.25rem;font-size:0.85rem;border-radius:6px" id="send-email-btn">Send</button>
+              </div>
+              <a href="${DOWNLOAD_PATH}" style="display:block;margin-top:0.75rem;font-size:0.75rem;color:var(--text-dim);text-decoration:underline">Skip — go straight to download →</a>
+            </div>`;
         } else {
           setStatus(`Transaction submitted but not yet confirmed. You'll be able to download once it confirms.<br><a href="https://basescan.org/tx/${txHash}" target="_blank" style="color:var(--accent)">Track on BaseScan</a>`, 'var(--accent)');
           btn.textContent = 'Waiting for confirmation...';
@@ -872,6 +882,35 @@
         }
       }
     });
+
+    async function sendCryptoEmail(txHash) {
+      const emailInput = document.getElementById('crypto-email');
+      const sendBtn = document.getElementById('send-email-btn');
+      const email = emailInput.value.trim();
+      if (!email) { emailInput.style.borderColor = '#f87171'; return; }
+      sendBtn.disabled = true;
+      sendBtn.textContent = 'Sending...';
+      try {
+        const resp = await fetch('/api/verify-crypto', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, txHash }),
+        });
+        const data = await resp.json();
+        if (resp.ok && data.success) {
+          sendBtn.textContent = '✓ Sent!';
+          setTimeout(() => { window.location.href = data.downloadUrl ? '/168a1eb2dd92fd596ac191d4' : DOWNLOAD_PATH; }, 1000);
+        } else {
+          sendBtn.textContent = 'Send';
+          sendBtn.disabled = false;
+          // Still redirect — email is best-effort
+          setTimeout(() => { window.location.href = DOWNLOAD_PATH; }, 2000);
+        }
+      } catch(e) {
+        // Email failed but payment was confirmed — redirect anyway
+        window.location.href = DOWNLOAD_PATH;
+      }
+    }
   </script>
 
 </body>

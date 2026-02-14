@@ -2,12 +2,19 @@
   "functions": {
     "api/stripe-webhook.js": {
       "maxDuration": 10
+    },
+    "api/verify-crypto.js": {
+      "maxDuration": 15
     }
   },
   "rewrites": [
     {
       "source": "/api/stripe-webhook",
       "destination": "/api/stripe-webhook.js"
+    },
+    {
+      "source": "/api/verify-crypto",
+      "destination": "/api/verify-crypto.js"
     }
   ]
 }

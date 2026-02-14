@@ -154,6 +154,17 @@
       cursor: not-allowed;
     }
 
+    .error-msg {
+      display: none;
+      background: rgba(248, 113, 113, 0.1);
+      border: 1px solid rgba(248, 113, 113, 0.3);
+      color: var(--red);
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      margin-bottom: 1rem;
+    }
+
     .success {
       display: none;
       text-align: center;
@@ -180,6 +191,34 @@
 
     .success p {
       color: var(--text-muted);
+      margin-bottom: 1rem;
+    }
+
+    .download-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--accent);
+      color: var(--bg);
+      padding: 1rem 2.5rem;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: transform 0.15s, box-shadow 0.15s;
+      margin-bottom: 1rem;
+      width: auto;
+    }
+
+    .download-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 20px rgba(196, 163, 90, 0.15);
+    }
+
+    .email-note {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      margin-top: 1rem;
     }
 
     footer {
@@ -211,11 +250,12 @@
       <p class="subtitle">Paid with USDC? Enter your details below.</p>
 
       <div class="card" id="form-card">
-        <form id="claim-form" action="https://formspree.io/f/xnqevwdr" method="POST">
+        <div class="error-msg" id="error-msg"></div>
+        <form id="claim-form">
           <div class="form-group">
             <label for="email">Email Address</label>
             <input type="email" id="email" name="email" placeholder="you@example.com" required>
-            <p class="help-text">Where we'll send your download link.</p>
+            <p class="help-text">We'll also send your download link here for safekeeping.</p>
           </div>
 
           <div class="form-group">
@@ -224,16 +264,19 @@
             <p class="help-text">Paste the transaction hash from your USDC payment.</p>
           </div>
 
-          <input type="hidden" name="product" value="How to Hire an AI">
-
-          <button type="submit" id="submit-btn">Request Download Link</button>
+          <button type="submit" id="submit-btn">Verify &amp; Download</button>
         </form>
       </div>
 
       <div class="success" id="success-message">
         <div class="success-icon">✓</div>
-        <h2>Request Received</h2>
-        <p>We'll verify your payment and send your download link within 24 hours.</p>
+        <h2>Payment Verified</h2>
+        <p>Your download is ready.</p>
+        <a href="#" class="download-btn" id="download-link" download="How-to-Hire-an-AI.pdf">
+          Download PDF
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v9M3 7l4 4 4-4M1 13h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <p class="email-note">A download link has also been sent to your email.</p>
       </div>
     </div>
   </main>
@@ -247,31 +290,43 @@
     const formCard = document.getElementById('form-card');
     const successMessage = document.getElementById('success-message');
     const submitBtn = document.getElementById('submit-btn');
+    const errorMsg = document.getElementById('error-msg');
+    const downloadLink = document.getElementById('download-link');
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Sending...';
+      submitBtn.textContent = 'Verifying on Base...';
+      errorMsg.style.display = 'none';
+
+      const email = document.getElementById('email').value.trim();
+      const txHash = document.getElementById('tx-hash').value.trim();
 
       try {
-        const response = await fetch(form.action, {
+        const response = await fetch('/api/verify-crypto', {
           method: 'POST',
-          body: new FormData(form),
-          headers: {
-            'Accept': 'application/json'
-          }
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, txHash }),
         });
 
-        if (response.ok) {
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+          // Set the download link and show success
+          downloadLink.href = data.downloadUrl;
           formCard.style.display = 'none';
           successMessage.style.display = 'block';
         } else {
-          throw new Error('Submission failed');
+          errorMsg.textContent = data.error || 'Verification failed. Please try again.';
+          errorMsg.style.display = 'block';
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Verify & Download';
         }
       } catch (error) {
+        errorMsg.textContent = 'Something went wrong. Please try again or email felix@masinov.co';
+        errorMsg.style.display = 'block';
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Request Download Link';
-        alert('Something went wrong. Please try again or email felix@masinov.co');
+        submitBtn.textContent = 'Verify & Download';
       }
     });
   </script>
