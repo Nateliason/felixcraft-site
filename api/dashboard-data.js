@@ -132,74 +132,105 @@ async function getStripeRevenue() {
   let allTime = 0;
   let productsSold = 0;
 
-  for (const acct of ACCOUNTS) {
+  // Fetch 30d charges and ALL charges in parallel per account
+  const acctPromises = ACCOUNTS.map(async (acct) => {
     try {
-      // Fetch ALL charges (lifetime) — we'll bucket into time windows
-      const charges = await fetchAllCharges(acct.id, null);
-      const succeeded = charges.filter(c => c.status === 'succeeded');
+      const [recentCharges, allCharges] = await Promise.all([
+        fetchAllCharges(acct.id, thirtyDaysAgo),
+        fetchAllCharges(acct.id, null),
+      ]);
 
-      // For marketplace accounts, fetch ALL transfers
-      let transfersByDay = {};
-      let totalTransfers = 0;
+      const recentSucceeded = recentCharges.filter(c => c.status === 'succeeded');
+      const allSucceeded = allCharges.filter(c => c.status === 'succeeded');
+
+      // Transfers for marketplace
+      let recentTransfersByDay = {};
+      let totalTransfersAll = 0;
+      let totalTransfers30d = 0;
       if (acct.marketplace) {
-        const transfers = await fetchAllTransfers(acct.id, null);
-        for (const t of transfers) {
+        const [recentTransfers, allTransfers] = await Promise.all([
+          fetchAllTransfers(acct.id, thirtyDaysAgo),
+          fetchAllTransfers(acct.id, null),
+        ]);
+        for (const t of recentTransfers) {
           const date = new Date(t.created * 1000).toISOString().slice(0, 10);
-          transfersByDay[date] = (transfersByDay[date] || 0) + t.amount;
-          totalTransfers += t.amount;
+          recentTransfersByDay[date] = (recentTransfersByDay[date] || 0) + t.amount;
+          totalTransfers30d += t.amount;
         }
+        totalTransfersAll = allTransfers.reduce((s, t) => s + t.amount, 0);
       }
 
-      for (const c of succeeded) {
+      // All-time net
+      const allGrossNet = allSucceeded.reduce((s, c) => s + c.amount - (c.amount_refunded || 0), 0);
+      const acctAllTime = allGrossNet - totalTransfersAll;
+
+      // 30d + 7d from recent charges
+      let acct30d = 0;
+      let acct7d = 0;
+      let acctSold = 0;
+      const acctDaily = {};
+
+      for (const c of recentSucceeded) {
         const net = c.amount - (c.amount_refunded || 0);
         const date = new Date(c.created * 1000).toISOString().slice(0, 10);
-        allTime += net;
-
-        if (c.created >= thirtyDaysAgo) {
-          dailyMap[date] = (dailyMap[date] || 0) + net;
-          total30d += net;
-          if (c.created >= sevenDaysAgo) total7d += net;
-          productsSold++;
-        }
+        acctDaily[date] = (acctDaily[date] || 0) + net;
+        acct30d += net;
+        if (c.created >= sevenDaysAgo) acct7d += net;
+        acctSold++;
       }
 
-      // Subtract creator payouts for marketplace accounts
+      // Subtract recent transfers for marketplace
       if (acct.marketplace) {
-        allTime -= totalTransfers;
-        for (const [date, amount] of Object.entries(transfersByDay)) {
+        acct30d -= totalTransfers30d;
+        for (const [date, amount] of Object.entries(recentTransfersByDay)) {
+          acctDaily[date] = (acctDaily[date] || 0) - amount;
           const dateTs = new Date(date + 'T00:00:00Z').getTime() / 1000;
-          if (dateTs >= thirtyDaysAgo) {
-            dailyMap[date] = (dailyMap[date] || 0) - amount;
-            total30d -= amount;
-            if (dateTs >= sevenDaysAgo) total7d -= amount;
-          }
+          if (dateTs >= sevenDaysAgo) acct7d -= amount;
         }
       }
+
+      return { daily: acctDaily, d30: acct30d, d7: acct7d, all: acctAllTime, sold: acctSold };
     } catch (e) {
       console.error(`Stripe error for ${acct.name}:`, e.message);
+      return { daily: {}, d30: 0, d7: 0, all: 0, sold: 0 };
     }
-  }
+  });
 
-  // Felix CM earnings from Supabase (all time)
-  try {
-    const purchases = await fetchFelixCMEarnings(null);
-    for (const p of purchases) {
-      const gross = p.amount_cents || 0;
-      const platformFee = p.platform_fee_cents || 0;
-      const creatorEarning = gross - platformFee;
-      const date = p.created_at.slice(0, 10);
-      const ts = new Date(p.created_at).getTime() / 1000;
-      allTime += creatorEarning;
-
-      if (ts >= thirtyDaysAgo) {
-        dailyMap[date] = (dailyMap[date] || 0) + creatorEarning;
-        total30d += creatorEarning;
-        if (ts >= sevenDaysAgo) total7d += creatorEarning;
-        productsSold++;
+  // Felix CM from Supabase
+  const felixCMPromise = (async () => {
+    try {
+      const purchases = await fetchFelixCMEarnings(null);
+      let d30 = 0, d7 = 0, all = 0, sold = 0;
+      const daily = {};
+      for (const p of purchases) {
+        const earning = (p.amount_cents || 0) - (p.platform_fee_cents || 0);
+        const date = p.created_at.slice(0, 10);
+        const ts = new Date(p.created_at).getTime() / 1000;
+        all += earning;
+        if (ts >= thirtyDaysAgo) {
+          daily[date] = (daily[date] || 0) + earning;
+          d30 += earning;
+          if (ts >= sevenDaysAgo) d7 += earning;
+          sold++;
+        }
       }
+      return { daily, d30, d7, all, sold };
+    } catch (e) {
+      console.error('Supabase Felix CM error:', e.message);
+      return { daily: {}, d30: 0, d7: 0, all: 0, sold: 0 };
     }
-  } catch (e) {
-    console.error('Supabase Felix CM error:', e.message);
+  })();
+
+  const results = await Promise.all([...acctPromises, felixCMPromise]);
+
+  for (const r of results) {
+    total30d += r.d30;
+    total7d += r.d7;
+    allTime += r.all;
+    productsSold += r.sold;
+    for (const [date, amount] of Object.entries(r.daily)) {
+      dailyMap[date] = (dailyMap[date] || 0) + amount;
+    }
   }
 
   const daily = Object.entries(dailyMap)
