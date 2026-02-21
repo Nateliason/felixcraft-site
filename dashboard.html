@@ -375,11 +375,7 @@
       return '$' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
-    async function loadDashboard() {
-      try {
-        const res = await fetch('/api/dashboard-data');
-        if (!res.ok) throw new Error('API returned ' + res.status);
-        const data = await res.json();
+    function renderDashboard(data) {
 
         // Revenue cards
         document.getElementById('rev-7d').textContent = fmt(data.revenue.total7d);
@@ -464,9 +460,30 @@
         // Show content
         document.getElementById('loading-state').style.display = 'none';
         document.getElementById('dashboard-content').style.display = 'block';
+    }
+
+    async function loadDashboard() {
+      // Show cached data instantly if available
+      const cached = localStorage.getItem('dashboard-data');
+      if (cached) {
+        try {
+          const data = JSON.parse(cached);
+          renderDashboard(data);
+        } catch (e) {}
+      }
+
+      // Fetch fresh data in background
+      try {
+        const res = await fetch('/api/dashboard-data');
+        if (!res.ok) throw new Error('API returned ' + res.status);
+        const data = await res.json();
+        localStorage.setItem('dashboard-data', JSON.stringify(data));
+        renderDashboard(data);
       } catch (e) {
-        document.getElementById('loading-state').innerHTML =
-          '<div class="error-msg">Failed to load dashboard data. Try refreshing.</div>';
+        if (!cached) {
+          document.getElementById('loading-state').innerHTML =
+            '<div class="error-msg">Failed to load dashboard data. Try refreshing.</div>';
+        }
         console.error(e);
       }
     }
