@@ -264,14 +264,16 @@
     .footer-content a:hover { color: var(--text); }
 
     @media (max-width: 640px) {
-      .container { padding: 6rem 1rem 3rem; }
+      nav { padding: 0.75rem 1rem; }
+      .logo { font-size: 0.95rem; }
+      .nav-links { gap: 0.6rem; }
+      .nav-links a { font-size: 0.65rem; letter-spacing: 0; }
+      .container { padding: 5rem 1rem 3rem; }
       .page-header h1 { font-size: 1.5rem; }
       .metric-value { font-size: 1.4rem; }
       .metrics-grid { grid-template-columns: 1fr 1fr; }
       .treasury-grid { grid-template-columns: 1fr; }
       .chart-container { height: 220px; }
-      .nav-links { gap: 1rem; }
-      .nav-links a { font-size: 0.75rem; }
       .footer-content { flex-direction: column; gap: 0.5rem; }
     }
   </style>
