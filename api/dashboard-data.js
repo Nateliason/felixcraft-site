@@ -20,6 +20,7 @@ const TREASURY = '0x778902475c0B5Cf97BB91515a007d983Ad6E70A6';
 const DEAD = '0x000000000000000000000000000000000000dEaD';
 const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 const FELIX_TOKEN = '0xf30Bf00edd0C22db54C9274B90D2A4C21FC09b07';
+const WETH = '0x4200000000000000000000000000000000000006';
 const BALANCE_OF = '0x70a08231000000000000000000000000';
 
 // ── Base chain helpers ──
@@ -218,15 +219,18 @@ export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const [revenue, ethPrice, treasuryEth, treasuryUsdc, treasuryFelix, burnedFelix] =
+    const [revenue, ethPrice, treasuryEth, treasuryWeth, treasuryUsdc, treasuryFelix, burnedFelix] =
       await Promise.all([
         getStripeRevenue(),
         getEthPrice(),
         getEthBalance(TREASURY),
+        getErc20Balance(WETH, TREASURY, 18),
         getErc20Balance(USDC, TREASURY, 6),
         getErc20Balance(FELIX_TOKEN, TREASURY, 18),
         getErc20Balance(FELIX_TOKEN, DEAD, 18),
       ]);
+
+    const totalEth = treasuryEth + treasuryWeth;
 
     res.status(200).json({
       revenue: {
@@ -236,7 +240,7 @@ export default async function handler(req, res) {
         allTime: revenue.allTime,
       },
       treasury: {
-        eth: treasuryEth.toFixed(6),
+        eth: totalEth.toFixed(6),
         usdc: treasuryUsdc.toFixed(2),
         felix: Math.floor(treasuryFelix).toLocaleString('en-US'),
         felixRaw: Math.floor(treasuryFelix),
