@@ -2,21 +2,27 @@ import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// Masinov Stripe accounts
+// Masinov Stripe accounts (excluding Felix CM — that comes from Supabase)
 const ACCOUNTS = [
-  { id: 'acct_1SxS6yRfMsviJLHg', name: 'Claw Mart' },
-  { id: 'acct_1SwiqtDtmukBWxkL', name: 'felixcraft.ai' },
-  { id: 'acct_1SwUyqDAsOYrsvx8', name: 'Polylogue' },
-  { id: 'acct_1SysljRnJP71h2KV', name: 'Felix CM' },
+  { id: 'acct_1SxS6yRfMsviJLHg', name: 'claw_mart', marketplace: true },
+  { id: 'acct_1SwiqtDtmukBWxkL', name: 'felix_craft', marketplace: false },
+  { id: 'acct_1SwUyqDAsOYrsvx8', name: 'polylogue', marketplace: false },
 ];
+
+// Felix CM earnings from Supabase
+const SUPABASE_URL = 'https://ltkehrsehoebzajkqrcp.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx0a2VocnNlaG9lYnphamtxcmNwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDQ3Mzg4MiwiZXhwIjoyMDg2MDQ5ODgyfQ.dOjlzhkdsOoMIA_YuG4fRwXH16xA60YOkKo-i_ffcTM';
+const FELIX_CREATOR_ID = '060f72a9-ecf3-4132-9fd7-a460036bca5a';
 
 // Base chain constants
 const BASE_RPC = 'https://mainnet.base.org';
-const TREASURY = '0x114d78163Fa1AB2488A5A2281317953C8679f508';
+const TREASURY = '0x778902475c0B5Cf97BB91515a007d983Ad6E70A6';
 const DEAD = '0x000000000000000000000000000000000000dEaD';
 const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 const FELIX_TOKEN = '0xf30Bf00edd0C22db54C9274B90D2A4C21FC09b07';
 const BALANCE_OF = '0x70a08231000000000000000000000000';
+
+// ── Base chain helpers ──
 
 async function rpcCall(method, params) {
   const res = await fetch(BASE_RPC, {
@@ -50,70 +56,141 @@ async function getEthPrice() {
   }
 }
 
+// ── Stripe helpers ──
+
+async function fetchAllCharges(acctId, createdGte) {
+  const charges = [];
+  let hasMore = true;
+  let startingAfter;
+
+  while (hasMore) {
+    const params = { limit: 100, created: { gte: createdGte } };
+    if (startingAfter) params.starting_after = startingAfter;
+
+    const page = await stripe.charges.list(params, { stripeAccount: acctId });
+    charges.push(...page.data);
+    hasMore = page.has_more;
+    if (page.data.length) startingAfter = page.data[page.data.length - 1].id;
+  }
+  return charges;
+}
+
+async function fetchAllTransfers(acctId, createdGte) {
+  const transfers = [];
+  let hasMore = true;
+  let startingAfter;
+
+  while (hasMore) {
+    const params = { limit: 100, created: { gte: createdGte } };
+    if (startingAfter) params.starting_after = startingAfter;
+
+    const page = await stripe.transfers.list(params, { stripeAccount: acctId });
+    transfers.push(...page.data);
+    hasMore = page.has_more;
+    if (page.data.length) startingAfter = page.data[page.data.length - 1].id;
+  }
+  return transfers;
+}
+
+// ── Felix CM earnings from Supabase ──
+
+async function fetchFelixCMEarnings(sinceTs) {
+  // Get Felix's persona IDs
+  const pRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/personas?select=id&creator_id=eq.${FELIX_CREATOR_ID}`,
+    { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+  );
+  const personas = await pRes.json();
+  if (!Array.isArray(personas) || !personas.length) return [];
+
+  const ids = personas.map(p => p.id).join(',');
+  const sinceIso = new Date(sinceTs * 1000).toISOString();
+  const url = `${SUPABASE_URL}/rest/v1/purchases?select=amount_cents,platform_fee_cents,created_at&persona_id=in.(${ids})&refunded_at=is.null&created_at=gte.${sinceIso}`;
+
+  const res = await fetch(url, {
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+  });
+  const purchases = await res.json();
+  return Array.isArray(purchases) ? purchases : [];
+}
+
+// ── Main revenue calculation ──
+
 async function getStripeRevenue() {
   const now = Math.floor(Date.now() / 1000);
   const thirtyDaysAgo = now - 30 * 86400;
   const sevenDaysAgo = now - 7 * 86400;
 
-  // Collect daily revenue across all accounts
   const dailyMap = {};
   let total30d = 0;
   let total7d = 0;
-  let allTime = 0;
   let productsSold = 0;
 
   for (const acct of ACCOUNTS) {
     try {
-      // Get balance transactions for last 30 days
-      let hasMore = true;
-      let startingAfter = undefined;
+      const charges = await fetchAllCharges(acct.id, thirtyDaysAgo);
+      const succeeded = charges.filter(c => c.status === 'succeeded');
 
-      while (hasMore) {
-        const params = {
-          created: { gte: thirtyDaysAgo },
-          limit: 100,
-          expand: ['data.source'],
-        };
-        if (startingAfter) params.starting_after = startingAfter;
-
-        const txns = await stripe.balanceTransactions.list(params, {
-          stripeAccount: acct.id,
-        });
-
-        for (const txn of txns.data) {
-          if (txn.type === 'charge' || txn.type === 'payment') {
-            const net = txn.net; // in cents, already net of fees
-            const date = new Date(txn.created * 1000).toISOString().slice(0, 10);
-            dailyMap[date] = (dailyMap[date] || 0) + net;
-            total30d += net;
-            if (txn.created >= sevenDaysAgo) total7d += net;
-            productsSold++;
-          }
-        }
-
-        hasMore = txns.has_more;
-        if (hasMore && txns.data.length > 0) {
-          startingAfter = txns.data[txns.data.length - 1].id;
+      // For marketplace accounts, fetch transfers (creator payouts) to subtract
+      let transfersByDay = {};
+      if (acct.marketplace) {
+        const transfers = await fetchAllTransfers(acct.id, thirtyDaysAgo);
+        for (const t of transfers) {
+          const date = new Date(t.created * 1000).toISOString().slice(0, 10);
+          transfersByDay[date] = (transfersByDay[date] || 0) + t.amount;
         }
       }
 
-      // Get all-time balance (available + pending)
-      const balance = await stripe.balance.retrieve({ stripeAccount: acct.id });
-      for (const b of [...balance.available, ...balance.pending]) {
-        if (b.currency === 'usd') allTime += b.amount;
+      for (const c of succeeded) {
+        const net = c.amount - (c.amount_refunded || 0); // gross minus refunds (in cents)
+        const date = new Date(c.created * 1000).toISOString().slice(0, 10);
+        dailyMap[date] = (dailyMap[date] || 0) + net;
+        total30d += net;
+        if (c.created >= sevenDaysAgo) total7d += net;
+        productsSold++;
+      }
+
+      // Subtract creator payouts for marketplace accounts
+      if (acct.marketplace) {
+        for (const [date, amount] of Object.entries(transfersByDay)) {
+          dailyMap[date] = (dailyMap[date] || 0) - amount;
+          total30d -= amount;
+          if (new Date(date + 'T00:00:00Z').getTime() / 1000 >= sevenDaysAgo) {
+            total7d -= amount;
+          }
+        }
       }
     } catch (e) {
       console.error(`Stripe error for ${acct.name}:`, e.message);
     }
   }
 
-  // Build sorted daily array
+  // Felix CM earnings from Supabase
+  try {
+    const purchases = await fetchFelixCMEarnings(thirtyDaysAgo);
+    for (const p of purchases) {
+      const gross = p.amount_cents || 0;
+      const platformFee = p.platform_fee_cents || 0;
+      const creatorEarning = gross - platformFee; // Felix keeps this
+      const date = p.created_at.slice(0, 10);
+      dailyMap[date] = (dailyMap[date] || 0) + creatorEarning;
+      total30d += creatorEarning;
+      const ts = new Date(p.created_at).getTime() / 1000;
+      if (ts >= sevenDaysAgo) total7d += creatorEarning;
+      productsSold++;
+    }
+  } catch (e) {
+    console.error('Supabase Felix CM error:', e.message);
+  }
+
   const daily = Object.entries(dailyMap)
     .map(([date, amount]) => ({ date, amount }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  return { daily, total7d, total30d, allTime, productsSold };
+  return { daily, total7d, total30d, productsSold };
 }
+
+// ── Handler ──
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -138,7 +215,6 @@ export default async function handler(req, res) {
         daily: revenue.daily,
         total7d: revenue.total7d,
         total30d: revenue.total30d,
-        allTime: revenue.allTime,
       },
       treasury: {
         eth: treasuryEth.toFixed(6),
