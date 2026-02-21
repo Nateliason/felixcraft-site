@@ -124,39 +124,49 @@ async function getStripeRevenue() {
   const dailyMap = {};
   let total30d = 0;
   let total7d = 0;
+  let allTime = 0;
   let productsSold = 0;
 
   for (const acct of ACCOUNTS) {
     try {
-      const charges = await fetchAllCharges(acct.id, thirtyDaysAgo);
+      // Fetch ALL charges (lifetime) — we'll bucket into time windows
+      const charges = await fetchAllCharges(acct.id, 0);
       const succeeded = charges.filter(c => c.status === 'succeeded');
 
-      // For marketplace accounts, fetch transfers (creator payouts) to subtract
+      // For marketplace accounts, fetch ALL transfers
       let transfersByDay = {};
+      let totalTransfers = 0;
       if (acct.marketplace) {
-        const transfers = await fetchAllTransfers(acct.id, thirtyDaysAgo);
+        const transfers = await fetchAllTransfers(acct.id, 0);
         for (const t of transfers) {
           const date = new Date(t.created * 1000).toISOString().slice(0, 10);
           transfersByDay[date] = (transfersByDay[date] || 0) + t.amount;
+          totalTransfers += t.amount;
         }
       }
 
       for (const c of succeeded) {
-        const net = c.amount - (c.amount_refunded || 0); // gross minus refunds (in cents)
+        const net = c.amount - (c.amount_refunded || 0);
         const date = new Date(c.created * 1000).toISOString().slice(0, 10);
-        dailyMap[date] = (dailyMap[date] || 0) + net;
-        total30d += net;
-        if (c.created >= sevenDaysAgo) total7d += net;
-        productsSold++;
+        allTime += net;
+
+        if (c.created >= thirtyDaysAgo) {
+          dailyMap[date] = (dailyMap[date] || 0) + net;
+          total30d += net;
+          if (c.created >= sevenDaysAgo) total7d += net;
+          productsSold++;
+        }
       }
 
       // Subtract creator payouts for marketplace accounts
       if (acct.marketplace) {
+        allTime -= totalTransfers;
         for (const [date, amount] of Object.entries(transfersByDay)) {
-          dailyMap[date] = (dailyMap[date] || 0) - amount;
-          total30d -= amount;
-          if (new Date(date + 'T00:00:00Z').getTime() / 1000 >= sevenDaysAgo) {
-            total7d -= amount;
+          const dateTs = new Date(date + 'T00:00:00Z').getTime() / 1000;
+          if (dateTs >= thirtyDaysAgo) {
+            dailyMap[date] = (dailyMap[date] || 0) - amount;
+            total30d -= amount;
+            if (dateTs >= sevenDaysAgo) total7d -= amount;
           }
         }
       }
@@ -165,19 +175,23 @@ async function getStripeRevenue() {
     }
   }
 
-  // Felix CM earnings from Supabase
+  // Felix CM earnings from Supabase (all time)
   try {
-    const purchases = await fetchFelixCMEarnings(thirtyDaysAgo);
+    const purchases = await fetchFelixCMEarnings(0);
     for (const p of purchases) {
       const gross = p.amount_cents || 0;
       const platformFee = p.platform_fee_cents || 0;
-      const creatorEarning = gross - platformFee; // Felix keeps this
+      const creatorEarning = gross - platformFee;
       const date = p.created_at.slice(0, 10);
-      dailyMap[date] = (dailyMap[date] || 0) + creatorEarning;
-      total30d += creatorEarning;
       const ts = new Date(p.created_at).getTime() / 1000;
-      if (ts >= sevenDaysAgo) total7d += creatorEarning;
-      productsSold++;
+      allTime += creatorEarning;
+
+      if (ts >= thirtyDaysAgo) {
+        dailyMap[date] = (dailyMap[date] || 0) + creatorEarning;
+        total30d += creatorEarning;
+        if (ts >= sevenDaysAgo) total7d += creatorEarning;
+        productsSold++;
+      }
     }
   } catch (e) {
     console.error('Supabase Felix CM error:', e.message);
@@ -187,7 +201,7 @@ async function getStripeRevenue() {
     .map(([date, amount]) => ({ date, amount }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  return { daily, total7d, total30d, productsSold };
+  return { daily, total7d, total30d, allTime, productsSold };
 }
 
 // ── Handler ──
@@ -215,6 +229,7 @@ export default async function handler(req, res) {
         daily: revenue.daily,
         total7d: revenue.total7d,
         total30d: revenue.total30d,
+        allTime: revenue.allTime,
       },
       treasury: {
         eth: treasuryEth.toFixed(6),

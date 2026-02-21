@@ -312,12 +312,8 @@
           <div class="metric-value accent" id="rev-30d">—</div>
         </div>
         <div class="metric-card">
-          <div class="metric-label">Products Sold</div>
-          <div class="metric-value" id="products-sold">—</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-label">ClawMart Creators</div>
-          <div class="metric-value" id="creators">—</div>
+          <div class="metric-label">Lifetime Revenue</div>
+          <div class="metric-value accent" id="rev-all">—</div>
         </div>
       </div>
 
@@ -385,8 +381,7 @@
         // Revenue cards
         document.getElementById('rev-7d').textContent = fmt(data.revenue.total7d);
         document.getElementById('rev-30d').textContent = fmt(data.revenue.total30d);
-        document.getElementById('products-sold').textContent = data.stats.productsSold;
-        document.getElementById('creators').textContent = data.stats.clawmartCreators;
+        document.getElementById('rev-all').textContent = fmt(data.revenue.allTime);
 
         // Treasury
         document.getElementById('treasury-eth').textContent = parseFloat(data.treasury.eth).toFixed(4) + ' ETH';
