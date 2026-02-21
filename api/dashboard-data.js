@@ -10,8 +10,8 @@ const ACCOUNTS = [
 ];
 
 // Felix CM earnings from Supabase
-const SUPABASE_URL = 'https://ltkehrsehoebzajkqrcp.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx0a2VocnNlaG9lYnphamtxcmNwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDQ3Mzg4MiwiZXhwIjoyMDg2MDQ5ODgyfQ.dOjlzhkdsOoMIA_YuG4fRwXH16xA60YOkKo-i_ffcTM';
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://ltkehrsehoebzajkqrcp.supabase.co';
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const FELIX_CREATOR_ID = '060f72a9-ecf3-4132-9fd7-a460036bca5a';
 
 // Base chain constants
