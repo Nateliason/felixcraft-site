@@ -1,6 +1,6 @@
 import Stripe from 'stripe';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const stripe = new Stripe(process.env.STRIPE_ORG_KEY || process.env.STRIPE_SECRET_KEY);
 
 // Masinov Stripe accounts (excluding Felix CM — that comes from Supabase)
 const ACCOUNTS = [
