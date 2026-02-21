@@ -341,6 +341,7 @@
         <div class="treasury-card">
           <div class="treasury-asset">$FELIX</div>
           <div class="treasury-amount" id="treasury-felix">—</div>
+          <div class="treasury-usd" id="treasury-felix-usd"></div>
         </div>
       </div>
 
@@ -350,7 +351,7 @@
         <div class="metric-card">
           <div class="metric-label">Tokens Burned</div>
           <div class="metric-value" id="felix-burned">—</div>
-          <div class="metric-sub">Sent to 0x...dEaD</div>
+          <div class="metric-sub" id="felix-burned-usd">Sent to 0x...dEaD</div>
         </div>
         <div class="metric-card">
           <div class="metric-label">Tokens Sold</div>
@@ -389,9 +390,17 @@
         document.getElementById('treasury-eth-usd').textContent = '≈ $' + Number(ethUsdVal).toLocaleString('en-US');
         document.getElementById('treasury-usdc').textContent = '$' + Number(data.treasury.usdc).toLocaleString('en-US', { minimumFractionDigits: 2 });
         document.getElementById('treasury-felix').textContent = data.treasury.felix;
+        if (data.treasury.felixUsd) {
+          const felixVal = (data.treasury.felixRaw * data.treasury.felixUsd).toFixed(2);
+          document.getElementById('treasury-felix-usd').textContent = '≈ $' + Number(felixVal).toLocaleString('en-US');
+        }
 
         // Token
         document.getElementById('felix-burned').textContent = data.token.burned;
+        if (data.treasury.felixUsd) {
+          const burnedVal = (data.token.burnedRaw * data.treasury.felixUsd).toFixed(2);
+          document.getElementById('felix-burned-usd').textContent = '≈ $' + Number(burnedVal).toLocaleString('en-US') + ' burned';
+        }
         document.getElementById('felix-sold').textContent = data.token.sold;
 
         // Updated at

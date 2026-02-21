@@ -57,6 +57,18 @@ async function getEthPrice() {
   }
 }
 
+async function getFelixPrice() {
+  try {
+    const res = await fetch('https://api.dexscreener.com/latest/dex/tokens/0xf30Bf00edd0C22db54C9274B90D2A4C21FC09b07');
+    const json = await res.json();
+    // Use the most liquid pair
+    const pairs = (json.pairs || []).sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
+    return pairs.length ? parseFloat(pairs[0].priceUsd) : 0;
+  } catch {
+    return 0;
+  }
+}
+
 // ── Stripe helpers ──
 
 async function fetchAllCharges(acctId, createdGte) {
@@ -250,10 +262,11 @@ export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const [revenue, ethPrice, treasuryEth, treasuryWeth, treasuryUsdc, treasuryFelix, burnedFelix] =
+    const [revenue, ethPrice, felixPrice, treasuryEth, treasuryWeth, treasuryUsdc, treasuryFelix, burnedFelix] =
       await Promise.all([
         getStripeRevenue(),
         getEthPrice(),
+        getFelixPrice(),
         getEthBalance(TREASURY),
         getErc20Balance(WETH, TREASURY, 18),
         getErc20Balance(USDC, TREASURY, 6),
@@ -276,6 +289,7 @@ export default async function handler(req, res) {
         felix: Math.floor(treasuryFelix).toLocaleString('en-US'),
         felixRaw: Math.floor(treasuryFelix),
         ethUsd: ethPrice,
+        felixUsd: felixPrice,
       },
       token: {
         burned: Math.floor(burnedFelix).toLocaleString('en-US'),
