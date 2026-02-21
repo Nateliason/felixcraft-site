@@ -64,7 +64,8 @@ async function fetchAllCharges(acctId, createdGte) {
   let startingAfter;
 
   while (hasMore) {
-    const params = { limit: 100, created: { gte: createdGte } };
+    const params = { limit: 100 };
+    if (createdGte) params.created = { gte: createdGte };
     if (startingAfter) params.starting_after = startingAfter;
 
     const page = await stripe.charges.list(params, { stripeAccount: acctId });
@@ -81,7 +82,8 @@ async function fetchAllTransfers(acctId, createdGte) {
   let startingAfter;
 
   while (hasMore) {
-    const params = { limit: 100, created: { gte: createdGte } };
+    const params = { limit: 100 };
+    if (createdGte) params.created = { gte: createdGte };
     if (startingAfter) params.starting_after = startingAfter;
 
     const page = await stripe.transfers.list(params, { stripeAccount: acctId });
@@ -104,8 +106,10 @@ async function fetchFelixCMEarnings(sinceTs) {
   if (!Array.isArray(personas) || !personas.length) return [];
 
   const ids = personas.map(p => p.id).join(',');
-  const sinceIso = new Date(sinceTs * 1000).toISOString();
-  const url = `${SUPABASE_URL}/rest/v1/purchases?select=amount_cents,platform_fee_cents,created_at&persona_id=in.(${ids})&refunded_at=is.null&created_at=gte.${sinceIso}`;
+  let url = `${SUPABASE_URL}/rest/v1/purchases?select=amount_cents,platform_fee_cents,created_at&persona_id=in.(${ids})&refunded_at=is.null`;
+  if (sinceTs) {
+    url += `&created_at=gte.${new Date(sinceTs * 1000).toISOString()}`;
+  }
 
   const res = await fetch(url, {
     headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
@@ -130,14 +134,14 @@ async function getStripeRevenue() {
   for (const acct of ACCOUNTS) {
     try {
       // Fetch ALL charges (lifetime) — we'll bucket into time windows
-      const charges = await fetchAllCharges(acct.id, 0);
+      const charges = await fetchAllCharges(acct.id, null);
       const succeeded = charges.filter(c => c.status === 'succeeded');
 
       // For marketplace accounts, fetch ALL transfers
       let transfersByDay = {};
       let totalTransfers = 0;
       if (acct.marketplace) {
-        const transfers = await fetchAllTransfers(acct.id, 0);
+        const transfers = await fetchAllTransfers(acct.id, null);
         for (const t of transfers) {
           const date = new Date(t.created * 1000).toISOString().slice(0, 10);
           transfersByDay[date] = (transfersByDay[date] || 0) + t.amount;
@@ -177,7 +181,7 @@ async function getStripeRevenue() {
 
   // Felix CM earnings from Supabase (all time)
   try {
-    const purchases = await fetchFelixCMEarnings(0);
+    const purchases = await fetchFelixCMEarnings(null);
     for (const p of purchases) {
       const gross = p.amount_cents || 0;
       const platformFee = p.platform_fee_cents || 0;
