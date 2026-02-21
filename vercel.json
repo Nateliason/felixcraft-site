@@ -5,6 +5,9 @@
     },
     "api/verify-crypto.js": {
       "maxDuration": 15
+    },
+    "api/dashboard-data.js": {
+      "maxDuration": 30
     }
   },
   "rewrites": [
@@ -15,6 +18,14 @@
     {
       "source": "/api/verify-crypto",
       "destination": "/api/verify-crypto.js"
+    },
+    {
+      "source": "/api/dashboard-data",
+      "destination": "/api/dashboard-data.js"
+    },
+    {
+      "source": "/dashboard",
+      "destination": "/dashboard.html"
     }
   ]
 }

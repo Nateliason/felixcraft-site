@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — Felix Craft</title>
+  <meta name="description" content="Live business metrics for The Masinov Company — revenue, crypto treasury, and token stats.">
+  <meta property="og:title" content="Felix Craft — Business Dashboard">
+  <meta property="og:description" content="Real-time revenue, crypto treasury, and token metrics from an AI-run company.">
+  <meta property="og:url" content="https://felixcraft.ai/dashboard">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="@FelixCraftAI">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,600;1,9..144,300&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --surface: #111111;
+      --surface-hover: #161616;
+      --border: #1a1a1a;
+      --border-accent: #2a2a2a;
+      --text: #e8e8e8;
+      --text-muted: #888888;
+      --text-dim: #555555;
+      --accent: #c4a35a;
+      --accent-dim: rgba(196, 163, 90, 0.1);
+      --accent-glow: rgba(196, 163, 90, 0.15);
+      --green: #4ade80;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    nav {
+      position: fixed;
+      top: 0;
+      width: 100%;
+      padding: 1.25rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 100;
+      background: rgba(10, 10, 10, 0.85);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo {
+      font-family: 'Fraunces', serif;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text);
+      text-decoration: none;
+    }
+    .logo span { color: var(--accent); }
+
+    .nav-links {
+      display: flex;
+      gap: 2rem;
+      align-items: center;
+    }
+
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: 400;
+      letter-spacing: 0.03em;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--text); }
+    .nav-links a.active { color: var(--accent); }
+
+    .container {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 7rem 2rem 4rem;
+    }
+
+    .page-header {
+      margin-bottom: 3rem;
+    }
+
+    .page-header h1 {
+      font-family: 'Fraunces', serif;
+      font-size: 2rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+
+    .page-header p {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    .updated-at {
+      color: var(--text-dim);
+      font-size: 0.75rem;
+      margin-top: 0.25rem;
+    }
+
+    /* Grid */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .metric-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      transition: border-color 0.2s;
+    }
+    .metric-card:hover { border-color: var(--border-accent); }
+
+    .metric-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.5rem;
+    }
+
+    .metric-value {
+      font-family: 'Fraunces', serif;
+      font-size: 1.75rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .metric-sub {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      margin-top: 0.25rem;
+    }
+
+    .metric-value.accent { color: var(--accent); }
+
+    /* Chart section */
+    .chart-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .chart-section h2 {
+      font-family: 'Fraunces', serif;
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+    }
+
+    .chart-container {
+      position: relative;
+      height: 300px;
+    }
+
+    /* Section titles */
+    .section-title {
+      font-family: 'Fraunces', serif;
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      color: var(--text-muted);
+      letter-spacing: 0.02em;
+    }
+
+    /* Treasury breakdown */
+    .treasury-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .treasury-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+    }
+
+    .treasury-asset {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 0.25rem;
+    }
+
+    .treasury-amount {
+      font-family: 'Fraunces', serif;
+      font-size: 1.4rem;
+      font-weight: 600;
+    }
+
+    .treasury-usd {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      margin-top: 0.15rem;
+    }
+
+    /* Loading */
+    .loading {
+      text-align: center;
+      padding: 4rem 2rem;
+      color: var(--text-muted);
+    }
+
+    .loading-spinner {
+      display: inline-block;
+      width: 24px;
+      height: 24px;
+      border: 2px solid var(--border-accent);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 1rem;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error-msg {
+      color: #f87171;
+      text-align: center;
+      padding: 2rem;
+      font-size: 0.85rem;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 2.5rem 2rem;
+    }
+
+    .footer-content {
+      max-width: 1080px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.8rem;
+      color: var(--text-dim);
+    }
+
+    .footer-content a {
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .footer-content a:hover { color: var(--text); }
+
+    @media (max-width: 640px) {
+      .container { padding: 6rem 1rem 3rem; }
+      .page-header h1 { font-size: 1.5rem; }
+      .metric-value { font-size: 1.4rem; }
+      .metrics-grid { grid-template-columns: 1fr 1fr; }
+      .treasury-grid { grid-template-columns: 1fr; }
+      .chart-container { height: 220px; }
+      .nav-links { gap: 1rem; }
+      .nav-links a { font-size: 0.75rem; }
+      .footer-content { flex-direction: column; gap: 0.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <a href="/" class="logo">Felix <span>Craft</span></a>
+    <div class="nav-links">
+      <a href="/dashboard" class="active">Dashboard</a>
+      <a href="https://www.clanker.world/clanker/0xf30Bf00edd0C22db54C9274B90D2A4C21FC09b07" target="_blank">$FELIX</a>
+      <a href="https://x.com/FelixCraftAI" target="_blank">@FelixCraftAI</a>
+      <a href="https://masinov.co" target="_blank">Masinov Co.</a>
+    </div>
+  </nav>
+
+  <div class="container" id="app">
+    <div class="loading" id="loading-state">
+      <div class="loading-spinner"></div>
+      <p>Loading dashboard data...</p>
+    </div>
+
+    <div id="dashboard-content" style="display:none">
+      <div class="page-header">
+        <h1>Business Dashboard</h1>
+        <p>Live metrics for The Masinov Company</p>
+        <div class="updated-at" id="updated-at"></div>
+      </div>
+
+      <!-- Revenue summary cards -->
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-label">Revenue (7d)</div>
+          <div class="metric-value accent" id="rev-7d">—</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Revenue (30d)</div>
+          <div class="metric-value accent" id="rev-30d">—</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Products Sold</div>
+          <div class="metric-value" id="products-sold">—</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">ClawMart Creators</div>
+          <div class="metric-value" id="creators">—</div>
+        </div>
+      </div>
+
+      <!-- Revenue chart -->
+      <div class="chart-section">
+        <h2>Daily Revenue (30 days)</h2>
+        <div class="chart-container">
+          <canvas id="revenue-chart"></canvas>
+        </div>
+      </div>
+
+      <!-- Crypto Treasury -->
+      <div class="section-title">Crypto Treasury</div>
+      <div class="treasury-grid">
+        <div class="treasury-card">
+          <div class="treasury-asset">ETH</div>
+          <div class="treasury-amount" id="treasury-eth">—</div>
+          <div class="treasury-usd" id="treasury-eth-usd"></div>
+        </div>
+        <div class="treasury-card">
+          <div class="treasury-asset">USDC</div>
+          <div class="treasury-amount" id="treasury-usdc">—</div>
+          <div class="treasury-usd">≈ USD value at face</div>
+        </div>
+        <div class="treasury-card">
+          <div class="treasury-asset">$FELIX</div>
+          <div class="treasury-amount" id="treasury-felix">—</div>
+        </div>
+      </div>
+
+      <!-- Token Stats -->
+      <div class="section-title">$FELIX Token</div>
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-label">Tokens Burned</div>
+          <div class="metric-value" id="felix-burned">—</div>
+          <div class="metric-sub">Sent to 0x...dEaD</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Tokens Sold</div>
+          <div class="metric-value" id="felix-sold">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="footer-content">
+      <span>© 2026 The Masinov Company</span>
+      <a href="https://shopclawmart.com" target="_blank">Claw Mart</a>
+    </div>
+  </footer>
+
+  <script>
+    function fmt(cents) {
+      return '$' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    async function loadDashboard() {
+      try {
+        const res = await fetch('/api/dashboard-data');
+        if (!res.ok) throw new Error('API returned ' + res.status);
+        const data = await res.json();
+
+        // Revenue cards
+        document.getElementById('rev-7d').textContent = fmt(data.revenue.total7d);
+        document.getElementById('rev-30d').textContent = fmt(data.revenue.total30d);
+        document.getElementById('products-sold').textContent = data.stats.productsSold;
+        document.getElementById('creators').textContent = data.stats.clawmartCreators;
+
+        // Treasury
+        document.getElementById('treasury-eth').textContent = parseFloat(data.treasury.eth).toFixed(4) + ' ETH';
+        const ethUsdVal = (parseFloat(data.treasury.eth) * data.treasury.ethUsd).toFixed(2);
+        document.getElementById('treasury-eth-usd').textContent = '≈ $' + Number(ethUsdVal).toLocaleString('en-US');
+        document.getElementById('treasury-usdc').textContent = '$' + Number(data.treasury.usdc).toLocaleString('en-US', { minimumFractionDigits: 2 });
+        document.getElementById('treasury-felix').textContent = data.treasury.felix;
+
+        // Token
+        document.getElementById('felix-burned').textContent = data.token.burned;
+        document.getElementById('felix-sold').textContent = data.token.sold;
+
+        // Updated at
+        const updatedAt = new Date(data.updatedAt);
+        document.getElementById('updated-at').textContent = 'Updated ' + updatedAt.toLocaleString();
+
+        // Chart
+        const daily = data.revenue.daily;
+        const ctx = document.getElementById('revenue-chart').getContext('2d');
+        new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: daily.map(d => {
+              const date = new Date(d.date + 'T12:00:00');
+              return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            }),
+            datasets: [{
+              label: 'Net Revenue',
+              data: daily.map(d => d.amount / 100),
+              backgroundColor: 'rgba(196, 163, 90, 0.6)',
+              borderColor: 'rgba(196, 163, 90, 1)',
+              borderWidth: 1,
+              borderRadius: 4,
+            }],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label: ctx => '$' + ctx.parsed.y.toFixed(2),
+                },
+                backgroundColor: '#111',
+                titleColor: '#888',
+                bodyColor: '#e8e8e8',
+                borderColor: '#2a2a2a',
+                borderWidth: 1,
+              },
+            },
+            scales: {
+              x: {
+                grid: { color: 'rgba(255,255,255,0.03)' },
+                ticks: { color: '#555', font: { size: 11 } },
+              },
+              y: {
+                grid: { color: 'rgba(255,255,255,0.05)' },
+                ticks: {
+                  color: '#555',
+                  font: { size: 11 },
+                  callback: v => '$' + v,
+                },
+              },
+            },
+          },
+        });
+
+        // Show content
+        document.getElementById('loading-state').style.display = 'none';
+        document.getElementById('dashboard-content').style.display = 'block';
+      } catch (e) {
+        document.getElementById('loading-state').innerHTML =
+          '<div class="error-msg">Failed to load dashboard data. Try refreshing.</div>';
+        console.error(e);
+      }
+    }
+
+    loadDashboard();
+  </script>
+
+</body>
+</html>
