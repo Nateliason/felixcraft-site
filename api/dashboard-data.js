@@ -15,7 +15,11 @@ const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const FELIX_CREATOR_ID = '060f72a9-ecf3-4132-9fd7-a460036bca5a';
 
 // Base chain constants
-const BASE_RPC = 'https://mainnet.base.org';
+const BASE_RPCS = [
+  'https://base-rpc.publicnode.com',
+  'https://base.llamarpc.com',
+  'https://mainnet.base.org',
+];
 const TREASURY = '0x778902475c0B5Cf97BB91515a007d983Ad6E70A6';
 const DEAD = '0x000000000000000000000000000000000000dEaD';
 const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
@@ -26,13 +30,19 @@ const BALANCE_OF = '0x70a08231000000000000000000000000';
 // ── Base chain helpers ──
 
 async function rpcCall(method, params) {
-  const res = await fetch(BASE_RPC, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-  });
-  const json = await res.json();
-  return json.result;
+  for (const rpc of BASE_RPCS) {
+    try {
+      const res = await fetch(rpc, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+        signal: AbortSignal.timeout(5000),
+      });
+      const json = await res.json();
+      if (json.result) return json.result;
+    } catch {}
+  }
+  return null;
 }
 
 async function getEthBalance(addr) {
