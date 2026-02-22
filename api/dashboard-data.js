@@ -37,6 +37,7 @@ async function rpcCall(method, params) {
 
 async function getEthBalance(addr) {
   const hex = await rpcCall('eth_getBalance', [addr, 'latest']);
+  if (!hex) return 0;
   return Number(BigInt(hex)) / 1e18;
 }
 
@@ -44,6 +45,7 @@ async function getErc20Balance(token, addr, decimals) {
   const paddedAddr = addr.toLowerCase().replace('0x', '');
   const data = BALANCE_OF + paddedAddr;
   const hex = await rpcCall('eth_call', [{ to: token, data }, 'latest']);
+  if (!hex) return 0;
   return Number(BigInt(hex)) / 10 ** decimals;
 }
 
