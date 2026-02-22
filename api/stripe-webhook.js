@@ -59,7 +59,7 @@ export default async function handler(req, res) {
     try {
       // Send download email via Resend
       await resend.emails.send({
-        from: 'Felix Craft <felix@masinov.co>',
+        from: 'Felix Craft <felix@updates.felixcraft.ai>',
         to: customerEmail,
         subject: 'Your "How to Hire an AI" download is ready',
         html: `
