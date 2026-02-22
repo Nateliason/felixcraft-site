@@ -402,21 +402,38 @@
         document.getElementById('rev-all').textContent = fmt(data.revenue.allTime);
 
         // Treasury
-        document.getElementById('treasury-eth').textContent = parseFloat(data.treasury.eth).toFixed(4) + ' ETH';
-        const ethUsdVal = (parseFloat(data.treasury.eth) * data.treasury.ethUsd).toFixed(2);
-        document.getElementById('treasury-eth-usd').textContent = '≈ $' + Number(ethUsdVal).toLocaleString('en-US');
-        document.getElementById('treasury-usdc').textContent = '$' + Number(data.treasury.usdc).toLocaleString('en-US', { minimumFractionDigits: 2 });
-        document.getElementById('treasury-felix').textContent = data.treasury.felix;
-        if (data.treasury.felixUsd) {
-          const felixVal = (data.treasury.felixRaw * data.treasury.felixUsd).toFixed(2);
-          document.getElementById('treasury-felix-usd').textContent = '≈ $' + Number(felixVal).toLocaleString('en-US');
+        if (data.treasury.eth !== null) {
+          document.getElementById('treasury-eth').textContent = parseFloat(data.treasury.eth).toFixed(4) + ' ETH';
+          const ethUsdVal = (parseFloat(data.treasury.eth) * data.treasury.ethUsd).toFixed(2);
+          document.getElementById('treasury-eth-usd').textContent = '≈ $' + Number(ethUsdVal).toLocaleString('en-US');
+        } else {
+          document.getElementById('treasury-eth').textContent = '—';
+          document.getElementById('treasury-eth-usd').textContent = 'RPC unavailable';
+        }
+        if (data.treasury.usdc !== null) {
+          document.getElementById('treasury-usdc').textContent = '$' + Number(data.treasury.usdc).toLocaleString('en-US', { minimumFractionDigits: 2 });
+        } else {
+          document.getElementById('treasury-usdc').textContent = '—';
+        }
+        if (data.treasury.felix !== null) {
+          document.getElementById('treasury-felix').textContent = data.treasury.felix;
+          if (data.treasury.felixUsd) {
+            const felixVal = (data.treasury.felixRaw * data.treasury.felixUsd).toFixed(2);
+            document.getElementById('treasury-felix-usd').textContent = '≈ $' + Number(felixVal).toLocaleString('en-US');
+          }
+        } else {
+          document.getElementById('treasury-felix').textContent = '—';
         }
 
         // Token
-        document.getElementById('felix-burned').textContent = data.token.burned;
-        if (data.treasury.felixUsd) {
-          const burnedVal = (data.token.burnedRaw * data.treasury.felixUsd).toFixed(2);
-          document.getElementById('felix-burned-usd').textContent = '≈ $' + Number(burnedVal).toLocaleString('en-US') + ' burned';
+        if (data.token.burned !== null) {
+          document.getElementById('felix-burned').textContent = data.token.burned;
+          if (data.treasury.felixUsd) {
+            const burnedVal = (data.token.burnedRaw * data.treasury.felixUsd).toFixed(2);
+            document.getElementById('felix-burned-usd').textContent = '≈ $' + Number(burnedVal).toLocaleString('en-US') + ' burned';
+          }
+        } else {
+          document.getElementById('felix-burned').textContent = '—';
         }
         document.getElementById('felix-sold').textContent = data.token.sold;
 

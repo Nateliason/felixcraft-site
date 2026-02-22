@@ -37,7 +37,7 @@ async function rpcCall(method, params) {
 
 async function getEthBalance(addr) {
   const hex = await rpcCall('eth_getBalance', [addr, 'latest']);
-  if (!hex) return 0;
+  if (!hex) return null;
   return Number(BigInt(hex)) / 1e18;
 }
 
@@ -45,7 +45,7 @@ async function getErc20Balance(token, addr, decimals) {
   const paddedAddr = addr.toLowerCase().replace('0x', '');
   const data = BALANCE_OF + paddedAddr;
   const hex = await rpcCall('eth_call', [{ to: token, data }, 'latest']);
-  if (!hex) return 0;
+  if (!hex) return null;
   return Number(BigInt(hex)) / 10 ** decimals;
 }
 
@@ -276,7 +276,8 @@ export default async function handler(req, res) {
         getErc20Balance(FELIX_TOKEN, DEAD, 18),
       ]);
 
-    const totalEth = treasuryEth + treasuryWeth;
+    const totalEth = (treasuryEth ?? 0) + (treasuryWeth ?? 0);
+    const rpcOk = treasuryEth !== null && treasuryWeth !== null && treasuryUsdc !== null && treasuryFelix !== null && burnedFelix !== null;
 
     res.status(200).json({
       revenue: {
@@ -286,16 +287,16 @@ export default async function handler(req, res) {
         allTime: revenue.allTime,
       },
       treasury: {
-        eth: totalEth.toFixed(6),
-        usdc: treasuryUsdc.toFixed(2),
-        felix: Math.floor(treasuryFelix).toLocaleString('en-US'),
-        felixRaw: Math.floor(treasuryFelix),
+        eth: rpcOk ? totalEth.toFixed(6) : null,
+        usdc: treasuryUsdc !== null ? treasuryUsdc.toFixed(2) : null,
+        felix: treasuryFelix !== null ? Math.floor(treasuryFelix).toLocaleString('en-US') : null,
+        felixRaw: treasuryFelix !== null ? Math.floor(treasuryFelix) : null,
         ethUsd: ethPrice,
         felixUsd: felixPrice,
       },
       token: {
-        burned: Math.floor(burnedFelix).toLocaleString('en-US'),
-        burnedRaw: Math.floor(burnedFelix),
+        burned: burnedFelix !== null ? Math.floor(burnedFelix).toLocaleString('en-US') : null,
+        burnedRaw: burnedFelix !== null ? Math.floor(burnedFelix) : null,
         sold: '0',
       },
       stats: {
