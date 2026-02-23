@@ -145,6 +145,10 @@ async function fetchFelixCMEarnings(sinceTs) {
 
 // ── Main revenue calculation ──
 
+function toCentralDate(unixTs) {
+  return new Date(unixTs * 1000).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+}
+
 async function getStripeRevenue() {
   const now = Math.floor(Date.now() / 1000);
   const thirtyDaysAgo = now - 30 * 86400;
@@ -177,7 +181,7 @@ async function getStripeRevenue() {
           fetchAllTransfers(acct.id, null),
         ]);
         for (const t of recentTransfers) {
-          const date = new Date(t.created * 1000).toISOString().slice(0, 10);
+          const date = toCentralDate(t.created);
           recentTransfersByDay[date] = (recentTransfersByDay[date] || 0) + t.amount;
           totalTransfers30d += t.amount;
         }
@@ -196,7 +200,7 @@ async function getStripeRevenue() {
 
       for (const c of recentSucceeded) {
         const net = c.amount - (c.amount_refunded || 0);
-        const date = new Date(c.created * 1000).toISOString().slice(0, 10);
+        const date = toCentralDate(c.created);
         acctDaily[date] = (acctDaily[date] || 0) + net;
         acct30d += net;
         if (c.created >= sevenDaysAgo) acct7d += net;
@@ -208,7 +212,7 @@ async function getStripeRevenue() {
         acct30d -= totalTransfers30d;
         for (const [date, amount] of Object.entries(recentTransfersByDay)) {
           acctDaily[date] = (acctDaily[date] || 0) - amount;
-          const dateTs = new Date(date + 'T00:00:00Z').getTime() / 1000;
+          const dateTs = new Date(date + 'T06:00:00Z').getTime() / 1000;
           if (dateTs >= sevenDaysAgo) acct7d -= amount;
         }
       }
