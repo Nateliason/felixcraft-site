@@ -261,7 +261,9 @@ async function getStripeRevenue() {
     }
   }
 
+  const today = toCentralDate(now);
   const daily = Object.entries(dailyMap)
+    .filter(([date]) => date <= today)
     .map(([date, amount]) => ({ date, amount }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
