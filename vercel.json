@@ -10,6 +10,13 @@
       "maxDuration": 60
     }
   },
+  "redirects": [
+    {
+      "source": "/token",
+      "destination": "https://www.clanker.world/clanker/0xf30Bf00edd0C22db54C9274B90D2A4C21FC09b07",
+      "permanent": false
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/stripe-webhook",
