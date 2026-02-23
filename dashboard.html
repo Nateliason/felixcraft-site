@@ -359,8 +359,8 @@
       <div class="metrics-grid">
         <div class="metric-card">
           <div class="metric-label">Tokens Burned</div>
-          <div class="metric-value" id="felix-burned">—</div>
-          <div class="metric-sub" id="felix-burned-pct"></div>
+          <div class="metric-value" id="felix-burned-pct">—</div>
+          <div class="metric-sub" id="felix-burned">—</div>
           <div class="metric-sub" id="felix-burned-usd">Sent to 0x...dEaD</div>
         </div>
         <div class="metric-card">
@@ -430,8 +430,8 @@
         // Token
         if (data.token.burned !== null) {
           const pct = (data.token.burnedRaw / 100_000_000_000 * 100).toFixed(2);
-          document.getElementById('felix-burned').textContent = data.token.burned;
-          document.getElementById('felix-burned-pct').textContent = pct + '% of supply';
+          document.getElementById('felix-burned-pct').textContent = pct + '% burned';
+          document.getElementById('felix-burned').textContent = data.token.burned + ' tokens';
           if (data.treasury.felixUsd) {
             const burnedVal = (data.token.burnedRaw * data.treasury.felixUsd).toFixed(2);
             document.getElementById('felix-burned-usd').textContent = '≈ $' + Number(burnedVal).toLocaleString('en-US') + ' burned';
