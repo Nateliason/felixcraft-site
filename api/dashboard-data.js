@@ -232,8 +232,8 @@ async function getStripeRevenue() {
       const daily = {};
       for (const p of purchases) {
         const earning = (p.amount_cents || 0) - (p.platform_fee_cents || 0);
-        const date = p.created_at.slice(0, 10);
         const ts = new Date(p.created_at).getTime() / 1000;
+        const date = toCentralDate(ts);  // Use CST like Stripe charges
         all += earning;
         if (ts >= thirtyDaysAgo) {
           daily[date] = (daily[date] || 0) + earning;
