@@ -251,7 +251,13 @@ async function getStripeRevenue() {
 
   const results = await Promise.all([...acctPromises, felixCMPromise]);
 
-  for (const r of results) {
+  // Stream names in order: claw_mart, felix_craft, polylogue, felix_cm
+  const streamNames = [...ACCOUNTS.map(a => a.name), 'felix_cm'];
+  const streams = {};
+
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    const name = streamNames[i];
     total30d += r.d30;
     total7d += r.d7;
     allTime += r.all;
@@ -259,6 +265,7 @@ async function getStripeRevenue() {
     for (const [date, amount] of Object.entries(r.daily)) {
       dailyMap[date] = (dailyMap[date] || 0) + amount;
     }
+    streams[name] = { d7: r.d7, d30: r.d30, all: r.all, daily: r.daily };
   }
 
   const today = toCentralDate(now);
@@ -267,7 +274,7 @@ async function getStripeRevenue() {
     .map(([date, amount]) => ({ date, amount }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  return { daily, total7d, total30d, allTime, productsSold };
+  return { daily, total7d, total30d, allTime, productsSold, streams };
 }
 
 // ── Handler ──
@@ -301,6 +308,7 @@ export default async function handler(req, res) {
         total7d: revenue.total7d,
         total30d: revenue.total30d,
         allTime: revenue.allTime,
+        streams: revenue.streams,
       },
       treasury: {
         eth: rpcOk ? totalEth.toFixed(6) : null,

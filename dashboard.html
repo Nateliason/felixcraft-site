@@ -334,6 +334,17 @@
         </div>
       </div>
 
+      <!-- Revenue Breakdown by Stream -->
+      <div class="section-title">Revenue by Stream</div>
+      <div class="metrics-grid" id="stream-cards" style="margin-bottom: 2.5rem;"></div>
+
+      <div class="chart-section">
+        <h2>Daily Revenue by Stream (30 days)</h2>
+        <div class="chart-container">
+          <canvas id="stream-chart"></canvas>
+        </div>
+      </div>
+
       <!-- Crypto Treasury -->
       <div class="section-title">Crypto Treasury <a href="https://basescan.org/address/0x778902475c0B5Cf97BB91515a007d983Ad6E70A6" target="_blank" style="font-family:'Inter',sans-serif;font-size:0.7rem;color:var(--accent);text-decoration:none;font-weight:400;margin-left:0.5rem">View on BaseScan →</a></div>
       <div class="treasury-grid">
@@ -496,6 +507,102 @@
             },
           },
         });
+
+        // Stream breakdown cards
+        const streamLabels = {
+          claw_mart: 'Claw Mart (net)',
+          felix_craft: 'Felix Craft',
+          polylogue: 'Polylogue',
+          felix_cm: 'Felix CM Earnings',
+        };
+        const streamColors = {
+          claw_mart: 'rgba(196, 163, 90, 0.7)',
+          felix_craft: 'rgba(74, 222, 128, 0.7)',
+          polylogue: 'rgba(96, 165, 250, 0.7)',
+          felix_cm: 'rgba(251, 146, 60, 0.7)',
+        };
+        const streamBorders = {
+          claw_mart: 'rgba(196, 163, 90, 1)',
+          felix_craft: 'rgba(74, 222, 128, 1)',
+          polylogue: 'rgba(96, 165, 250, 1)',
+          felix_cm: 'rgba(251, 146, 60, 1)',
+        };
+
+        if (data.revenue.streams) {
+          const cardsEl = document.getElementById('stream-cards');
+          cardsEl.innerHTML = '';
+          for (const [key, label] of Object.entries(streamLabels)) {
+            const s = data.revenue.streams[key];
+            if (!s) continue;
+            const card = document.createElement('div');
+            card.className = 'metric-card';
+            card.style.borderLeft = '3px solid ' + streamBorders[key];
+            card.innerHTML = `
+              <div class="metric-label">${label}</div>
+              <div class="metric-value" style="font-size:1.4rem;">${fmt(s.d30)}</div>
+              <div class="metric-sub">7d: ${fmt(s.d7)} · All-time: ${fmt(s.all)}</div>
+            `;
+            cardsEl.appendChild(card);
+          }
+
+          // Stacked bar chart
+          const allDates = [...new Set(
+            Object.values(data.revenue.streams).flatMap(s => Object.keys(s.daily || {}))
+          )].sort();
+          const datasets = Object.entries(streamLabels).map(([key, label]) => {
+            const s = data.revenue.streams[key];
+            return {
+              label,
+              data: allDates.map(d => ((s && s.daily && s.daily[d]) || 0) / 100),
+              backgroundColor: streamColors[key],
+              borderColor: streamBorders[key],
+              borderWidth: 1,
+              borderRadius: 2,
+            };
+          });
+
+          const sCtx = document.getElementById('stream-chart').getContext('2d');
+          new Chart(sCtx, {
+            type: 'bar',
+            data: {
+              labels: allDates.map(d => {
+                const date = new Date(d + 'T12:00:00');
+                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              }),
+              datasets,
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { 
+                  display: true,
+                  labels: { color: '#888', font: { size: 11 } },
+                },
+                tooltip: {
+                  callbacks: { label: ctx => ctx.dataset.label + ': $' + ctx.parsed.y.toFixed(2) },
+                  backgroundColor: '#111',
+                  titleColor: '#888',
+                  bodyColor: '#e8e8e8',
+                  borderColor: '#2a2a2a',
+                  borderWidth: 1,
+                },
+              },
+              scales: {
+                x: {
+                  stacked: true,
+                  grid: { color: 'rgba(255,255,255,0.03)' },
+                  ticks: { color: '#555', font: { size: 11 } },
+                },
+                y: {
+                  stacked: true,
+                  grid: { color: 'rgba(255,255,255,0.05)' },
+                  ticks: { color: '#555', font: { size: 11 }, callback: v => '$' + v },
+                },
+              },
+            },
+          });
+        }
 
         // Show content
         document.getElementById('loading-state').style.display = 'none';
