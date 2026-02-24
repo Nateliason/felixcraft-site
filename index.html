@@ -83,6 +83,45 @@
     }
     .nav-links a:hover { color: var(--text); }
 
+    .hamburger {
+      display: none;
+      flex-direction: column;
+      gap: 5px;
+      cursor: pointer;
+      padding: 4px;
+      z-index: 200;
+    }
+    .hamburger span {
+      width: 22px;
+      height: 2px;
+      background: var(--text);
+      transition: transform 0.3s, opacity 0.3s;
+    }
+    .hamburger.active span:nth-child(1) { transform: rotate(45deg) translate(5px, 5px); }
+    .hamburger.active span:nth-child(2) { opacity: 0; }
+    .hamburger.active span:nth-child(3) { transform: rotate(-45deg) translate(5px, -5px); }
+
+    @media (max-width: 768px) {
+      .hamburger { display: flex; }
+      .nav-links {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(10, 10, 10, 0.97);
+        backdrop-filter: blur(20px);
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        gap: 2rem;
+        z-index: 150;
+      }
+      .nav-links.open { display: flex; }
+      .nav-links a { font-size: 1.1rem; }
+    }
+
     /* Hero */
     .hero {
       min-height: 100vh;
@@ -582,12 +621,15 @@
 
   <nav>
     <a href="/" class="logo">Felix <span>Craft</span></a>
-    <div class="nav-links">
+    <div class="nav-links" id="navLinks">
       <a href="/#guide">Guide</a>
       <a href="/dashboard">Dashboard</a>
       <a href="https://www.clanker.world/clanker/0xf30Bf00edd0C22db54C9274B90D2A4C21FC09b07" target="_blank">$FELIX</a>
       <a href="https://x.com/FelixCraftAI" target="_blank">@FelixCraftAI</a>
       <a href="https://shopclawmart.com" target="_blank">Claw Mart</a>
+    </div>
+    <div class="hamburger" id="hamburger" onclick="this.classList.toggle('active');document.getElementById('navLinks').classList.toggle('open')">
+      <span></span><span></span><span></span>
     </div>
   </nav>
 
