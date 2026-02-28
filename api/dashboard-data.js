@@ -2,14 +2,13 @@ import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_ORG_KEY || process.env.STRIPE_SECRET_KEY);
 
-// Masinov Stripe accounts (excluding Felix CM — that comes from Supabase)
+// Masinov Stripe accounts
 const ACCOUNTS = [
   { id: 'acct_1SxS6yRfMsviJLHg', name: 'claw_mart', marketplace: true },
   { id: 'acct_1SwiqtDtmukBWxkL', name: 'felix_craft', marketplace: false },
   { id: 'acct_1SwUyqDAsOYrsvx8', name: 'polylogue', marketplace: false },
 ];
 
-// Felix CM earnings from Supabase
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://ltkehrsehoebzajkqrcp.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const FELIX_CREATOR_ID = '060f72a9-ecf3-4132-9fd7-a460036bca5a';
@@ -73,7 +72,6 @@ async function getFelixPrice() {
   try {
     const res = await fetch('https://api.dexscreener.com/latest/dex/tokens/0xf30Bf00edd0C22db54C9274B90D2A4C21FC09b07');
     const json = await res.json();
-    // Use the most liquid pair
     const pairs = (json.pairs || []).sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
     return pairs.length ? parseFloat(pairs[0].priceUsd) : 0;
   } catch {
@@ -81,18 +79,15 @@ async function getFelixPrice() {
   }
 }
 
-// ── Stripe helpers ──
+// ── Stripe helpers (30d only for chart data) ──
 
-async function fetchAllCharges(acctId, createdGte) {
+async function fetchCharges(acctId, createdGte) {
   const charges = [];
   let hasMore = true;
   let startingAfter;
-
   while (hasMore) {
-    const params = { limit: 100 };
-    if (createdGte) params.created = { gte: createdGte };
+    const params = { limit: 100, created: { gte: createdGte } };
     if (startingAfter) params.starting_after = startingAfter;
-
     const page = await stripe.charges.list(params, { stripeAccount: acctId });
     charges.push(...page.data);
     hasMore = page.has_more;
@@ -101,16 +96,13 @@ async function fetchAllCharges(acctId, createdGte) {
   return charges;
 }
 
-async function fetchAllTransfers(acctId, createdGte) {
+async function fetchTransfers(acctId, createdGte) {
   const transfers = [];
   let hasMore = true;
   let startingAfter;
-
   while (hasMore) {
-    const params = { limit: 100 };
-    if (createdGte) params.created = { gte: createdGte };
+    const params = { limit: 100, created: { gte: createdGte } };
     if (startingAfter) params.starting_after = startingAfter;
-
     const page = await stripe.transfers.list(params, { stripeAccount: acctId });
     transfers.push(...page.data);
     hasMore = page.has_more;
@@ -119,10 +111,34 @@ async function fetchAllTransfers(acctId, createdGte) {
   return transfers;
 }
 
-// ── Felix CM earnings from Supabase ──
+// ── Cached all-time totals from Supabase ──
 
-async function fetchFelixCMEarnings(sinceTs) {
-  // Get Felix's persona IDs
+async function getCachedTotals() {
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/revenue_cache?select=*`,
+      { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+    );
+    const rows = await res.json();
+    if (!Array.isArray(rows)) return {};
+    const map = {};
+    for (const row of rows) {
+      map[row.account_key] = {
+        net: row.net_cents,
+        sold: row.products_sold,
+        cachedThrough: row.cached_through,
+      };
+    }
+    return map;
+  } catch (e) {
+    console.error('Failed to read revenue cache:', e.message);
+    return {};
+  }
+}
+
+// ── Felix CM earnings (30d only) ──
+
+async function fetchFelixCMRecent(sinceTs) {
   const pRes = await fetch(
     `${SUPABASE_URL}/rest/v1/personas?select=id&creator_id=eq.${FELIX_CREATOR_ID}`,
     { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
@@ -131,11 +147,7 @@ async function fetchFelixCMEarnings(sinceTs) {
   if (!Array.isArray(personas) || !personas.length) return [];
 
   const ids = personas.map(p => p.id).join(',');
-  let url = `${SUPABASE_URL}/rest/v1/purchases?select=amount_cents,platform_fee_cents,created_at&persona_id=in.(${ids})&refunded_at=is.null`;
-  if (sinceTs) {
-    url += `&created_at=gte.${new Date(sinceTs * 1000).toISOString()}`;
-  }
-
+  const url = `${SUPABASE_URL}/rest/v1/purchases?select=amount_cents,platform_fee_cents,created_at&persona_id=in.(${ids})&refunded_at=is.null&created_at=gte.${new Date(sinceTs * 1000).toISOString()}`;
   const res = await fetch(url, {
     headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
   });
@@ -149,11 +161,13 @@ function toCentralDate(unixTs) {
   return new Date(unixTs * 1000).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
 }
 
-async function getStripeRevenue() {
+async function getRevenue() {
   const now = Math.floor(Date.now() / 1000);
-  const ninetyDaysAgo = now - 90 * 86400;
   const thirtyDaysAgo = now - 30 * 86400;
   const sevenDaysAgo = now - 7 * 86400;
+
+  // Read cached all-time totals (instant, no pagination)
+  const cache = await getCachedTotals();
 
   const dailyMap = {};
   let total30d = 0;
@@ -161,29 +175,25 @@ async function getStripeRevenue() {
   let allTime = 0;
   let productsSold = 0;
 
-  // Fetch 90d charges (covers full history for now — business started Jan 2026)
+  // Fetch only 30d charges per Stripe account (fast, bounded)
   const acctPromises = ACCOUNTS.map(async (acct) => {
     try {
-      const charges = await fetchAllCharges(acct.id, ninetyDaysAgo);
-      const succeeded = charges.filter(c => c.status === 'succeeded');
+      const [charges, transfers] = await Promise.all([
+        fetchCharges(acct.id, thirtyDaysAgo),
+        acct.marketplace ? fetchTransfers(acct.id, thirtyDaysAgo) : Promise.resolve([]),
+      ]);
 
-      // Transfers for marketplace (90d window)
-      let transfersByDay = {};
-      let totalTransfers = 0;
+      const succeeded = charges.filter(c => c.status === 'succeeded');
+      const transfersByDay = {};
       let totalTransfers30d = 0;
+
       if (acct.marketplace) {
-        const transfers = await fetchAllTransfers(acct.id, ninetyDaysAgo);
         for (const t of transfers) {
           const date = toCentralDate(t.created);
           transfersByDay[date] = (transfersByDay[date] || 0) + t.amount;
-          totalTransfers += t.amount;
-          if (t.created >= thirtyDaysAgo) totalTransfers30d += t.amount;
+          totalTransfers30d += t.amount;
         }
       }
-
-      // Compute totals from single fetch
-      const grossAll = succeeded.reduce((s, c) => s + c.amount - (c.amount_refunded || 0), 0);
-      const acctAllTime = grossAll - totalTransfers;
 
       let acct30d = 0;
       let acct7d = 0;
@@ -194,61 +204,56 @@ async function getStripeRevenue() {
         const net = c.amount - (c.amount_refunded || 0);
         const date = toCentralDate(c.created);
         acctDaily[date] = (acctDaily[date] || 0) + net;
-        if (c.created >= thirtyDaysAgo) {
-          acct30d += net;
-          acctSold++;
-        }
+        acct30d += net;
         if (c.created >= sevenDaysAgo) acct7d += net;
+        acctSold++;
       }
 
-      // Subtract transfers for marketplace
       if (acct.marketplace) {
         acct30d -= totalTransfers30d;
         for (const [date, amount] of Object.entries(transfersByDay)) {
           acctDaily[date] = (acctDaily[date] || 0) - amount;
           const dateTs = new Date(date + 'T06:00:00Z').getTime() / 1000;
-          if (dateTs >= thirtyDaysAgo) {
-            // already subtracted from acct30d above
-          }
           if (dateTs >= sevenDaysAgo) acct7d -= amount;
         }
       }
 
-      return { daily: acctDaily, d30: acct30d, d7: acct7d, all: acctAllTime, sold: acctSold };
+      // All-time = cached total (if available), otherwise fall back to 30d
+      const cached = cache[acct.name];
+      const acctAllTime = cached ? cached.net : acct30d;
+      const acctAllSold = cached ? cached.sold : acctSold;
+
+      return { daily: acctDaily, d30: acct30d, d7: acct7d, all: acctAllTime, sold: acctSold, allSold: acctAllSold };
     } catch (e) {
       console.error(`Stripe error for ${acct.name}:`, e.message);
-      return { daily: {}, d30: 0, d7: 0, all: 0, sold: 0 };
+      return { daily: {}, d30: 0, d7: 0, all: 0, sold: 0, allSold: 0 };
     }
   });
 
-  // Felix CM from Supabase
+  // Felix CM 30d
   const felixCMPromise = (async () => {
     try {
-      const purchases = await fetchFelixCMEarnings(ninetyDaysAgo);
-      let d30 = 0, d7 = 0, all = 0, sold = 0;
+      const purchases = await fetchFelixCMRecent(thirtyDaysAgo);
+      let d30 = 0, d7 = 0, sold = 0;
       const daily = {};
       for (const p of purchases) {
         const earning = (p.amount_cents || 0) - (p.platform_fee_cents || 0);
         const ts = new Date(p.created_at).getTime() / 1000;
-        const date = toCentralDate(ts);  // Use CST like Stripe charges
-        all += earning;
-        if (ts >= thirtyDaysAgo) {
-          daily[date] = (daily[date] || 0) + earning;
-          d30 += earning;
-          if (ts >= sevenDaysAgo) d7 += earning;
-          sold++;
-        }
+        const date = toCentralDate(ts);
+        daily[date] = (daily[date] || 0) + earning;
+        d30 += earning;
+        if (ts >= sevenDaysAgo) d7 += earning;
+        sold++;
       }
-      return { daily, d30, d7, all, sold };
+      const cached = cache.felix_cm;
+      return { daily, d30, d7, all: cached ? cached.net : d30, sold, allSold: cached ? cached.sold : sold };
     } catch (e) {
-      console.error('Supabase Felix CM error:', e.message);
-      return { daily: {}, d30: 0, d7: 0, all: 0, sold: 0 };
+      console.error('Felix CM error:', e.message);
+      return { daily: {}, d30: 0, d7: 0, all: 0, sold: 0, allSold: 0 };
     }
   })();
 
   const results = await Promise.all([...acctPromises, felixCMPromise]);
-
-  // Stream names in order: claw_mart, felix_craft, polylogue, felix_cm
   const streamNames = [...ACCOUNTS.map(a => a.name), 'felix_cm'];
   const streams = {};
 
@@ -258,7 +263,7 @@ async function getStripeRevenue() {
     total30d += r.d30;
     total7d += r.d7;
     allTime += r.all;
-    productsSold += r.sold;
+    productsSold += r.allSold;
     for (const [date, amount] of Object.entries(r.daily)) {
       dailyMap[date] = (dailyMap[date] || 0) + amount;
     }
@@ -286,7 +291,7 @@ export default async function handler(req, res) {
   try {
     const [revenue, ethPrice, felixPrice, treasuryEth, treasuryWeth, treasuryUsdc, treasuryFelix, burnedFelix] =
       await Promise.all([
-        getStripeRevenue(),
+        getRevenue(),
         getEthPrice(),
         getFelixPrice(),
         getEthBalance(TREASURY),

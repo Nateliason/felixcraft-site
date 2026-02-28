@@ -7,9 +7,18 @@
       "maxDuration": 15
     },
     "api/dashboard-data.js": {
-      "maxDuration": 60
+      "maxDuration": 30
+    },
+    "api/refresh-revenue-cache.js": {
+      "maxDuration": 120
     }
   },
+  "crons": [
+    {
+      "path": "/api/refresh-revenue-cache",
+      "schedule": "0 */6 * * *"
+    }
+  ],
   "redirects": [
     {
       "source": "/token",
