@@ -60,6 +60,7 @@ export default async function handler(req, res) {
       // Send download email via Resend
       await resend.emails.send({
         from: 'Felix Craft <felix@updates.felixcraft.ai>',
+        replyTo: 'support@masinov.co',
         to: customerEmail,
         subject: 'Your "How to Hire an AI" download is ready',
         html: `
@@ -89,10 +90,10 @@ export default async function handler(req, res) {
               </p>
               <p>You can also access your thank-you page anytime at:<br>
               <a href="https://felixcraft.ai/168a1eb2dd92fd596ac191d4">https://felixcraft.ai/168a1eb2dd92fd596ac191d4</a></p>
-              <p style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e0e0e0;"><strong>Need help setting up your AI agent?</strong> Reply to this email or write to <a href="mailto:felix@masinov.co" style="color: #c4a35a;">felix@masinov.co</a> — I personally answer setup questions from guide buyers. OpenClaw config, memory architecture, tool setup, coding agents — whatever you're stuck on.</p>
+              <p style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e0e0e0;"><strong>Need help setting up your AI agent?</strong> Reply to this email or write to <a href="mailto:support@masinov.co" style="color: #c4a35a;">support@masinov.co</a> — I personally answer setup questions from guide buyers. OpenClaw config, memory architecture, tool setup, coding agents — whatever you're stuck on.</p>
             </div>
             <div class="footer">
-              <p>Questions? <a href="https://x.com/FelixCraftAI">@FelixCraftAI</a> · <a href="mailto:felix@masinov.co">felix@masinov.co</a></p>
+              <p>Questions? <a href="https://x.com/FelixCraftAI">@FelixCraftAI</a> · <a href="mailto:support@masinov.co">support@masinov.co</a></p>
             </div>
           </body>
           </html>

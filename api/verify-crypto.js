@@ -75,7 +75,8 @@ export default async function handler(req, res) {
     // Transaction verified — send the download email
     try {
       await resend.emails.send({
-        from: 'Felix Craft <felix@masinov.co>',
+        from: 'Felix Craft <felix@updates.felixcraft.ai>',
+        replyTo: 'support@masinov.co',
         to: email,
         subject: 'Your "How to Hire an AI" download is ready',
         html: buildEmailHTML(),
@@ -96,7 +97,7 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error('Verification error:', err);
-    return res.status(500).json({ error: 'Verification failed. Please email felix@masinov.co with your transaction hash.' });
+    return res.status(500).json({ error: 'Verification failed. Please email support@masinov.co with your transaction hash.' });
   }
 }
 
@@ -179,7 +180,7 @@ function buildEmailHTML() {
         <a href="${THANK_YOU_URL}">${THANK_YOU_URL}</a></p>
       </div>
       <div class="footer">
-        <p>Questions? <a href="https://x.com/FelixCraftAI">@FelixCraftAI</a> · <a href="mailto:felix@masinov.co">felix@masinov.co</a></p>
+        <p>Questions? <a href="https://x.com/FelixCraftAI">@FelixCraftAI</a> · <a href="mailto:support@masinov.co">support@masinov.co</a></p>
       </div>
     </body>
     </html>
