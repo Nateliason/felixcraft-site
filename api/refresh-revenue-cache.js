@@ -76,9 +76,10 @@ async function upsertCache(accountKey, data) {
 }
 
 export default async function handler(req, res) {
-  // Auth: require cron secret or specific header
+  // Auth: Vercel cron sets this header automatically, or use CRON_SECRET
   const auth = req.headers.authorization;
-  if (CRON_SECRET && auth !== `Bearer ${CRON_SECRET}`) {
+  const isVercelCron = req.headers['x-vercel-cron'] === '1';
+  if (!isVercelCron && CRON_SECRET && auth !== `Bearer ${CRON_SECRET}`) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
