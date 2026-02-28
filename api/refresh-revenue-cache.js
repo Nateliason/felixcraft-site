@@ -13,6 +13,10 @@ const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const FELIX_CREATOR_ID = '060f72a9-ecf3-4132-9fd7-a460036bca5a';
 const CRON_SECRET = process.env.CRON_SECRET;
 
+function toCentralDate(unixTs) {
+  return new Date(unixTs * 1000).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+}
+
 async function fetchAllCharges(acctId, createdGte) {
   const charges = [];
   let hasMore = true;
@@ -52,6 +56,10 @@ async function upsertCache(accountKey, data) {
     gross_cents: data.gross,
     transfers_cents: data.transfers,
     products_sold: data.sold,
+    d7_cents: data.d7,
+    d30_cents: data.d30,
+    d30_sold: data.d30Sold,
+    daily_json: JSON.stringify(data.daily),
     cached_through: data.cachedThrough,
     updated_at: new Date().toISOString(),
   };
@@ -75,8 +83,53 @@ async function upsertCache(accountKey, data) {
   }
 }
 
+function computeMetrics(succeeded, transfers, now) {
+  const thirtyDaysAgo = now - 30 * 86400;
+  const sevenDaysAgo = now - 7 * 86400;
+
+  const gross = succeeded.reduce((s, c) => s + c.amount - (c.amount_refunded || 0), 0);
+  const totalTransfers = transfers.reduce((s, t) => s + t.amount, 0);
+
+  // Build daily map and period totals
+  const dailyMap = {};
+  let d30Gross = 0, d7Gross = 0, d30Sold = 0;
+
+  for (const c of succeeded) {
+    const net = c.amount - (c.amount_refunded || 0);
+    const date = toCentralDate(c.created);
+    dailyMap[date] = (dailyMap[date] || 0) + net;
+    if (c.created >= thirtyDaysAgo) { d30Gross += net; d30Sold++; }
+    if (c.created >= sevenDaysAgo) d7Gross += net;
+  }
+
+  // Subtract transfers per day
+  let d30Transfers = 0, d7Transfers = 0;
+  for (const t of transfers) {
+    const date = toCentralDate(t.created);
+    dailyMap[date] = (dailyMap[date] || 0) - t.amount;
+    if (t.created >= thirtyDaysAgo) d30Transfers += t.amount;
+    if (t.created >= sevenDaysAgo) d7Transfers += t.amount;
+  }
+
+  // Convert daily map to sorted array (last 30d only for chart)
+  const daily = Object.entries(dailyMap)
+    .filter(([date]) => date >= toCentralDate(thirtyDaysAgo))
+    .map(([date, amount]) => ({ date, amount }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  return {
+    net: gross - totalTransfers,
+    gross,
+    transfers: totalTransfers,
+    sold: succeeded.length,
+    d7: d7Gross - d7Transfers,
+    d30: d30Gross - d30Transfers,
+    d30Sold,
+    daily,
+  };
+}
+
 export default async function handler(req, res) {
-  // Auth: Vercel cron sets this header automatically, or use CRON_SECRET
   const auth = req.headers.authorization;
   const isVercelCron = req.headers['x-vercel-cron'] === '1';
   if (!isVercelCron && CRON_SECRET && auth !== `Bearer ${CRON_SECRET}`) {
@@ -86,29 +139,19 @@ export default async function handler(req, res) {
   const now = Math.floor(Date.now() / 1000);
   const results = {};
 
-  // Process each Stripe account
   for (const acct of ACCOUNTS) {
     try {
-      const charges = await fetchAllCharges(acct.id, null);
+      const [charges, transfers] = await Promise.all([
+        fetchAllCharges(acct.id, null),
+        acct.marketplace ? fetchAllTransfers(acct.id, null) : Promise.resolve([]),
+      ]);
+
       const succeeded = charges.filter(c => c.status === 'succeeded');
-      const gross = succeeded.reduce((s, c) => s + c.amount - (c.amount_refunded || 0), 0);
+      const metrics = computeMetrics(succeeded, transfers, now);
+      metrics.cachedThrough = now;
 
-      let transfers = 0;
-      if (acct.marketplace) {
-        const allTransfers = await fetchAllTransfers(acct.id, null);
-        transfers = allTransfers.reduce((s, t) => s + t.amount, 0);
-      }
-
-      const data = {
-        net: gross - transfers,
-        gross,
-        transfers,
-        sold: succeeded.length,
-        cachedThrough: now,
-      };
-
-      await upsertCache(acct.name, data);
-      results[acct.name] = data;
+      await upsertCache(acct.name, metrics);
+      results[acct.name] = { net: metrics.net, d30: metrics.d30, d7: metrics.d7, sold: metrics.sold };
     } catch (e) {
       console.error(`Error processing ${acct.name}:`, e.message);
       results[acct.name] = { error: e.message };
@@ -130,14 +173,32 @@ export default async function handler(req, res) {
       );
       const purchases = await purchRes.json();
       if (Array.isArray(purchases)) {
-        let net = 0, sold = 0;
+        const thirtyDaysAgo = now - 30 * 86400;
+        const sevenDaysAgo = now - 7 * 86400;
+        let net = 0, d30 = 0, d7 = 0, sold = 0, d30Sold = 0;
+        const dailyMap = {};
+
         for (const p of purchases) {
-          net += (p.amount_cents || 0) - (p.platform_fee_cents || 0);
+          const earning = (p.amount_cents || 0) - (p.platform_fee_cents || 0);
+          const ts = new Date(p.created_at).getTime() / 1000;
+          const date = toCentralDate(ts);
+          net += earning;
           sold++;
+          if (ts >= thirtyDaysAgo) {
+            dailyMap[date] = (dailyMap[date] || 0) + earning;
+            d30 += earning;
+            d30Sold++;
+          }
+          if (ts >= sevenDaysAgo) d7 += earning;
         }
-        const data = { net, gross: net, transfers: 0, sold, cachedThrough: now };
+
+        const daily = Object.entries(dailyMap)
+          .map(([date, amount]) => ({ date, amount }))
+          .sort((a, b) => a.date.localeCompare(b.date));
+
+        const data = { net, gross: net, transfers: 0, sold, d7, d30, d30Sold, daily, cachedThrough: now };
         await upsertCache('felix_cm', data);
-        results.felix_cm = data;
+        results.felix_cm = { net, d30, d7, sold };
       }
     }
   } catch (e) {

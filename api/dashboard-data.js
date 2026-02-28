@@ -1,17 +1,5 @@
-import Stripe from 'stripe';
-
-const stripe = new Stripe(process.env.STRIPE_ORG_KEY || process.env.STRIPE_SECRET_KEY);
-
-// Masinov Stripe accounts
-const ACCOUNTS = [
-  { id: 'acct_1SxS6yRfMsviJLHg', name: 'claw_mart', marketplace: true },
-  { id: 'acct_1SwiqtDtmukBWxkL', name: 'felix_craft', marketplace: false },
-  { id: 'acct_1SwUyqDAsOYrsvx8', name: 'polylogue', marketplace: false },
-];
-
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://ltkehrsehoebzajkqrcp.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
-const FELIX_CREATOR_ID = '060f72a9-ecf3-4132-9fd7-a460036bca5a';
 
 // Base chain constants
 const BASE_RPCS = [
@@ -79,198 +67,45 @@ async function getFelixPrice() {
   }
 }
 
-// ── Stripe helpers (30d only for chart data) ──
+// ── Revenue from cache (single Supabase read) ──
 
-async function fetchCharges(acctId, createdGte) {
-  const charges = [];
-  let hasMore = true;
-  let startingAfter;
-  while (hasMore) {
-    const params = { limit: 100, created: { gte: createdGte } };
-    if (startingAfter) params.starting_after = startingAfter;
-    const page = await stripe.charges.list(params, { stripeAccount: acctId });
-    charges.push(...page.data);
-    hasMore = page.has_more;
-    if (page.data.length) startingAfter = page.data[page.data.length - 1].id;
-  }
-  return charges;
-}
-
-async function fetchTransfers(acctId, createdGte) {
-  const transfers = [];
-  let hasMore = true;
-  let startingAfter;
-  while (hasMore) {
-    const params = { limit: 100, created: { gte: createdGte } };
-    if (startingAfter) params.starting_after = startingAfter;
-    const page = await stripe.transfers.list(params, { stripeAccount: acctId });
-    transfers.push(...page.data);
-    hasMore = page.has_more;
-    if (page.data.length) startingAfter = page.data[page.data.length - 1].id;
-  }
-  return transfers;
-}
-
-// ── Cached all-time totals from Supabase ──
-
-async function getCachedTotals() {
-  try {
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/revenue_cache?select=*`,
-      { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
-    );
-    const rows = await res.json();
-    if (!Array.isArray(rows)) return {};
-    const map = {};
-    for (const row of rows) {
-      map[row.account_key] = {
-        net: row.net_cents,
-        sold: row.products_sold,
-        cachedThrough: row.cached_through,
-      };
-    }
-    return map;
-  } catch (e) {
-    console.error('Failed to read revenue cache:', e.message);
-    return {};
-  }
-}
-
-// ── Felix CM earnings (30d only) ──
-
-async function fetchFelixCMRecent(sinceTs) {
-  const pRes = await fetch(
-    `${SUPABASE_URL}/rest/v1/personas?select=id&creator_id=eq.${FELIX_CREATOR_ID}`,
+async function getRevenueFromCache() {
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/revenue_cache?select=*`,
     { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
   );
-  const personas = await pRes.json();
-  if (!Array.isArray(personas) || !personas.length) return [];
-
-  const ids = personas.map(p => p.id).join(',');
-  const url = `${SUPABASE_URL}/rest/v1/purchases?select=amount_cents,platform_fee_cents,created_at&persona_id=in.(${ids})&refunded_at=is.null&created_at=gte.${new Date(sinceTs * 1000).toISOString()}`;
-  const res = await fetch(url, {
-    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
-  });
-  const purchases = await res.json();
-  return Array.isArray(purchases) ? purchases : [];
-}
-
-// ── Main revenue calculation ──
-
-function toCentralDate(unixTs) {
-  return new Date(unixTs * 1000).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
-}
-
-async function getRevenue() {
-  const now = Math.floor(Date.now() / 1000);
-  const thirtyDaysAgo = now - 30 * 86400;
-  const sevenDaysAgo = now - 7 * 86400;
-
-  // Read cached all-time totals (instant, no pagination)
-  const cache = await getCachedTotals();
-
-  const dailyMap = {};
-  let total30d = 0;
-  let total7d = 0;
-  let allTime = 0;
-  let productsSold = 0;
-
-  // Fetch only 30d charges per Stripe account (fast, bounded)
-  const acctPromises = ACCOUNTS.map(async (acct) => {
-    try {
-      const [charges, transfers] = await Promise.all([
-        fetchCharges(acct.id, thirtyDaysAgo),
-        acct.marketplace ? fetchTransfers(acct.id, thirtyDaysAgo) : Promise.resolve([]),
-      ]);
-
-      const succeeded = charges.filter(c => c.status === 'succeeded');
-      const transfersByDay = {};
-      let totalTransfers30d = 0;
-
-      if (acct.marketplace) {
-        for (const t of transfers) {
-          const date = toCentralDate(t.created);
-          transfersByDay[date] = (transfersByDay[date] || 0) + t.amount;
-          totalTransfers30d += t.amount;
-        }
-      }
-
-      let acct30d = 0;
-      let acct7d = 0;
-      let acctSold = 0;
-      const acctDaily = {};
-
-      for (const c of succeeded) {
-        const net = c.amount - (c.amount_refunded || 0);
-        const date = toCentralDate(c.created);
-        acctDaily[date] = (acctDaily[date] || 0) + net;
-        acct30d += net;
-        if (c.created >= sevenDaysAgo) acct7d += net;
-        acctSold++;
-      }
-
-      if (acct.marketplace) {
-        acct30d -= totalTransfers30d;
-        for (const [date, amount] of Object.entries(transfersByDay)) {
-          acctDaily[date] = (acctDaily[date] || 0) - amount;
-          const dateTs = new Date(date + 'T06:00:00Z').getTime() / 1000;
-          if (dateTs >= sevenDaysAgo) acct7d -= amount;
-        }
-      }
-
-      // All-time = cached total (if available), otherwise fall back to 30d
-      const cached = cache[acct.name];
-      const acctAllTime = cached ? cached.net : acct30d;
-      const acctAllSold = cached ? cached.sold : acctSold;
-
-      return { daily: acctDaily, d30: acct30d, d7: acct7d, all: acctAllTime, sold: acctSold, allSold: acctAllSold };
-    } catch (e) {
-      console.error(`Stripe error for ${acct.name}:`, e.message);
-      return { daily: {}, d30: 0, d7: 0, all: 0, sold: 0, allSold: 0 };
-    }
-  });
-
-  // Felix CM 30d
-  const felixCMPromise = (async () => {
-    try {
-      const purchases = await fetchFelixCMRecent(thirtyDaysAgo);
-      let d30 = 0, d7 = 0, sold = 0;
-      const daily = {};
-      for (const p of purchases) {
-        const earning = (p.amount_cents || 0) - (p.platform_fee_cents || 0);
-        const ts = new Date(p.created_at).getTime() / 1000;
-        const date = toCentralDate(ts);
-        daily[date] = (daily[date] || 0) + earning;
-        d30 += earning;
-        if (ts >= sevenDaysAgo) d7 += earning;
-        sold++;
-      }
-      const cached = cache.felix_cm;
-      return { daily, d30, d7, all: cached ? cached.net : d30, sold, allSold: cached ? cached.sold : sold };
-    } catch (e) {
-      console.error('Felix CM error:', e.message);
-      return { daily: {}, d30: 0, d7: 0, all: 0, sold: 0, allSold: 0 };
-    }
-  })();
-
-  const results = await Promise.all([...acctPromises, felixCMPromise]);
-  const streamNames = [...ACCOUNTS.map(a => a.name), 'felix_cm'];
-  const streams = {};
-
-  for (let i = 0; i < results.length; i++) {
-    const r = results[i];
-    const name = streamNames[i];
-    total30d += r.d30;
-    total7d += r.d7;
-    allTime += r.all;
-    productsSold += r.allSold;
-    for (const [date, amount] of Object.entries(r.daily)) {
-      dailyMap[date] = (dailyMap[date] || 0) + amount;
-    }
-    streams[name] = { d7: r.d7, d30: r.d30, all: r.all, daily: r.daily };
+  const rows = await res.json();
+  if (!Array.isArray(rows) || !rows.length) {
+    return { daily: [], total7d: 0, total30d: 0, allTime: 0, productsSold: 0, streams: {} };
   }
 
-  const today = toCentralDate(now);
+  const dailyMap = {};
+  let total7d = 0, total30d = 0, allTime = 0, productsSold = 0;
+  const streams = {};
+
+  for (const row of rows) {
+    const key = row.account_key;
+    const daily = typeof row.daily_json === 'string' ? JSON.parse(row.daily_json) : (row.daily_json || []);
+
+    streams[key] = {
+      d7: row.d7_cents,
+      d30: row.d30_cents,
+      all: row.net_cents,
+      daily: Object.fromEntries(daily.map(d => [d.date, d.amount])),
+    };
+
+    total7d += row.d7_cents;
+    total30d += row.d30_cents;
+    allTime += row.net_cents;
+    productsSold += row.products_sold;
+
+    for (const d of daily) {
+      dailyMap[d.date] = (dailyMap[d.date] || 0) + d.amount;
+    }
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const today = new Date(now * 1000).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
   const daily = Object.entries(dailyMap)
     .filter(([date]) => date <= today)
     .map(([date, amount]) => ({ date, amount }))
@@ -291,7 +126,7 @@ export default async function handler(req, res) {
   try {
     const [revenue, ethPrice, felixPrice, treasuryEth, treasuryWeth, treasuryUsdc, treasuryFelix, burnedFelix] =
       await Promise.all([
-        getRevenue(),
+        getRevenueFromCache(),
         getEthPrice(),
         getFelixPrice(),
         getEthBalance(TREASURY),
