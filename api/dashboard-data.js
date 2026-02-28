@@ -151,6 +151,7 @@ function toCentralDate(unixTs) {
 
 async function getStripeRevenue() {
   const now = Math.floor(Date.now() / 1000);
+  const ninetyDaysAgo = now - 90 * 86400;
   const thirtyDaysAgo = now - 30 * 86400;
   const sevenDaysAgo = now - 7 * 86400;
 
@@ -160,59 +161,55 @@ async function getStripeRevenue() {
   let allTime = 0;
   let productsSold = 0;
 
-  // Fetch 30d charges and ALL charges in parallel per account
+  // Fetch 90d charges (covers full history for now — business started Jan 2026)
   const acctPromises = ACCOUNTS.map(async (acct) => {
     try {
-      const [recentCharges, allCharges] = await Promise.all([
-        fetchAllCharges(acct.id, thirtyDaysAgo),
-        fetchAllCharges(acct.id, null),
-      ]);
+      const charges = await fetchAllCharges(acct.id, ninetyDaysAgo);
+      const succeeded = charges.filter(c => c.status === 'succeeded');
 
-      const recentSucceeded = recentCharges.filter(c => c.status === 'succeeded');
-      const allSucceeded = allCharges.filter(c => c.status === 'succeeded');
-
-      // Transfers for marketplace
-      let recentTransfersByDay = {};
-      let totalTransfersAll = 0;
+      // Transfers for marketplace (90d window)
+      let transfersByDay = {};
+      let totalTransfers = 0;
       let totalTransfers30d = 0;
       if (acct.marketplace) {
-        const [recentTransfers, allTransfers] = await Promise.all([
-          fetchAllTransfers(acct.id, thirtyDaysAgo),
-          fetchAllTransfers(acct.id, null),
-        ]);
-        for (const t of recentTransfers) {
+        const transfers = await fetchAllTransfers(acct.id, ninetyDaysAgo);
+        for (const t of transfers) {
           const date = toCentralDate(t.created);
-          recentTransfersByDay[date] = (recentTransfersByDay[date] || 0) + t.amount;
-          totalTransfers30d += t.amount;
+          transfersByDay[date] = (transfersByDay[date] || 0) + t.amount;
+          totalTransfers += t.amount;
+          if (t.created >= thirtyDaysAgo) totalTransfers30d += t.amount;
         }
-        totalTransfersAll = allTransfers.reduce((s, t) => s + t.amount, 0);
       }
 
-      // All-time net
-      const allGrossNet = allSucceeded.reduce((s, c) => s + c.amount - (c.amount_refunded || 0), 0);
-      const acctAllTime = allGrossNet - totalTransfersAll;
+      // Compute totals from single fetch
+      const grossAll = succeeded.reduce((s, c) => s + c.amount - (c.amount_refunded || 0), 0);
+      const acctAllTime = grossAll - totalTransfers;
 
-      // 30d + 7d from recent charges
       let acct30d = 0;
       let acct7d = 0;
       let acctSold = 0;
       const acctDaily = {};
 
-      for (const c of recentSucceeded) {
+      for (const c of succeeded) {
         const net = c.amount - (c.amount_refunded || 0);
         const date = toCentralDate(c.created);
         acctDaily[date] = (acctDaily[date] || 0) + net;
-        acct30d += net;
+        if (c.created >= thirtyDaysAgo) {
+          acct30d += net;
+          acctSold++;
+        }
         if (c.created >= sevenDaysAgo) acct7d += net;
-        acctSold++;
       }
 
-      // Subtract recent transfers for marketplace
+      // Subtract transfers for marketplace
       if (acct.marketplace) {
         acct30d -= totalTransfers30d;
-        for (const [date, amount] of Object.entries(recentTransfersByDay)) {
+        for (const [date, amount] of Object.entries(transfersByDay)) {
           acctDaily[date] = (acctDaily[date] || 0) - amount;
           const dateTs = new Date(date + 'T06:00:00Z').getTime() / 1000;
+          if (dateTs >= thirtyDaysAgo) {
+            // already subtracted from acct30d above
+          }
           if (dateTs >= sevenDaysAgo) acct7d -= amount;
         }
       }
@@ -227,7 +224,7 @@ async function getStripeRevenue() {
   // Felix CM from Supabase
   const felixCMPromise = (async () => {
     try {
-      const purchases = await fetchFelixCMEarnings(null);
+      const purchases = await fetchFelixCMEarnings(ninetyDaysAgo);
       let d30 = 0, d7 = 0, all = 0, sold = 0;
       const daily = {};
       for (const p of purchases) {
