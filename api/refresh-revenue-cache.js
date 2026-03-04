@@ -17,13 +17,13 @@ function toCentralDate(unixTs) {
   return new Date(unixTs * 1000).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
 }
 
-async function fetchAllCharges(acctId, createdGte) {
+async function fetchChargesSince(acctId, since) {
   const charges = [];
   let hasMore = true;
   let startingAfter;
   while (hasMore) {
     const params = { limit: 100 };
-    if (createdGte) params.created = { gte: createdGte };
+    if (since) params.created = { gte: since };
     if (startingAfter) params.starting_after = startingAfter;
     const page = await stripe.charges.list(params, { stripeAccount: acctId });
     charges.push(...page.data);
@@ -33,13 +33,13 @@ async function fetchAllCharges(acctId, createdGte) {
   return charges;
 }
 
-async function fetchAllTransfers(acctId, createdGte) {
+async function fetchTransfersSince(acctId, since) {
   const transfers = [];
   let hasMore = true;
   let startingAfter;
   while (hasMore) {
     const params = { limit: 100 };
-    if (createdGte) params.created = { gte: createdGte };
+    if (since) params.created = { gte: since };
     if (startingAfter) params.starting_after = startingAfter;
     const page = await stripe.transfers.list(params, { stripeAccount: acctId });
     transfers.push(...page.data);
@@ -83,14 +83,49 @@ async function upsertCache(accountKey, data) {
   }
 }
 
-function computeMetrics(succeeded, transfers, now) {
+async function readExistingCache() {
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/revenue_cache?select=*`,
+    { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+  );
+  const rows = await res.json();
+  const map = {};
+  if (Array.isArray(rows)) {
+    for (const row of rows) map[row.account_key] = row;
+  }
+  return map;
+}
+
+/**
+ * Incremental refresh for a Stripe account.
+ *
+ * 1. Read existing cache row (has all-time totals + cached_through timestamp)
+ * 2. Fetch only NEW charges/transfers since cached_through
+ * 3. Add new amounts to stored all-time totals
+ * 4. Recompute 7d/30d/daily from the last 31 days of charges (always fresh)
+ *
+ * If no cache exists yet (first run), fetches everything.
+ */
+async function refreshAccount(acct, existingCache, now) {
+  const prev = existingCache[acct.name];
+  const thirtyOneDaysAgo = now - 31 * 86400;
   const thirtyDaysAgo = now - 30 * 86400;
   const sevenDaysAgo = now - 7 * 86400;
 
-  const gross = succeeded.reduce((s, c) => s + c.amount - (c.amount_refunded || 0), 0);
-  const totalTransfers = transfers.reduce((s, t) => s + t.amount, 0);
+  // Determine how far back to fetch for incremental all-time update
+  // Use the earlier of cached_through or 31 days ago so we always
+  // have full 30d data for the chart
+  const cachedThrough = prev?.cached_through || 0;
+  const incrementalSince = Math.min(cachedThrough, thirtyOneDaysAgo);
 
-  // Build daily map and period totals
+  const [charges, transfers] = await Promise.all([
+    fetchChargesSince(acct.id, incrementalSince),
+    acct.marketplace ? fetchTransfersSince(acct.id, incrementalSince) : Promise.resolve([]),
+  ]);
+
+  const succeeded = charges.filter(c => c.status === 'succeeded');
+
+  // ── Compute 7d / 30d / daily chart (from fetched window) ──
   const dailyMap = {};
   let d30Gross = 0, d7Gross = 0, d30Sold = 0;
 
@@ -102,7 +137,6 @@ function computeMetrics(succeeded, transfers, now) {
     if (c.created >= sevenDaysAgo) d7Gross += net;
   }
 
-  // Subtract transfers per day
   let d30Transfers = 0, d7Transfers = 0;
   for (const t of transfers) {
     const date = toCentralDate(t.created);
@@ -111,21 +145,35 @@ function computeMetrics(succeeded, transfers, now) {
     if (t.created >= sevenDaysAgo) d7Transfers += t.amount;
   }
 
-  // Convert daily map to sorted array (last 30d only for chart)
   const daily = Object.entries(dailyMap)
     .filter(([date]) => date >= toCentralDate(thirtyDaysAgo))
     .map(([date, amount]) => ({ date, amount }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
+  // ── Compute all-time totals (incremental) ──
+  // New charges since cached_through contribute to all-time totals
+  const newCharges = succeeded.filter(c => c.created > cachedThrough);
+  const newTransfers = transfers.filter(t => t.created > cachedThrough);
+
+  const newGross = newCharges.reduce((s, c) => s + c.amount - (c.amount_refunded || 0), 0);
+  const newTransferAmt = newTransfers.reduce((s, t) => s + t.amount, 0);
+  const newSold = newCharges.length;
+
+  const allTimeNet = (prev?.net_cents || 0) + newGross - newTransferAmt;
+  const allTimeGross = (prev?.gross_cents || 0) + newGross;
+  const allTimeTransfers = (prev?.transfers_cents || 0) + newTransferAmt;
+  const allTimeSold = (prev?.products_sold || 0) + newSold;
+
   return {
-    net: gross - totalTransfers,
-    gross,
-    transfers: totalTransfers,
-    sold: succeeded.length,
+    net: allTimeNet,
+    gross: allTimeGross,
+    transfers: allTimeTransfers,
+    sold: allTimeSold,
     d7: d7Gross - d7Transfers,
     d30: d30Gross - d30Transfers,
     d30Sold,
     daily,
+    cachedThrough: now,
   };
 }
 
@@ -137,67 +185,35 @@ export default async function handler(req, res) {
   }
 
   const now = Math.floor(Date.now() / 1000);
-  const thirtyOneDaysAgo = now - 31 * 86400;
   const results = {};
 
-  // Read existing cache to preserve all-time totals (incremental update)
-  let existingCache = {};
-  try {
-    const cacheRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/revenue_cache?select=account_key,net_cents,gross_cents,transfers_cents,products_sold,cached_through`,
-      { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
-    );
-    const cacheRows = await cacheRes.json();
-    if (Array.isArray(cacheRows)) {
-      for (const row of cacheRows) existingCache[row.account_key] = row;
-    }
-  } catch (e) {
-    console.error('Failed to read existing cache:', e.message);
-  }
+  // Read existing cache for incremental updates
+  const existingCache = await readExistingCache();
 
-  // Only fetch last 31 days of charges (enough for 7d/30d/daily chart).
-  // All-time totals are preserved from existing cache + new charges.
-  // This prevents timeout as charge volume grows.
+  // Process all Stripe accounts in parallel
   const accountResults = await Promise.allSettled(
-    ACCOUNTS.map(async (acct) => {
-      const [charges, transfers] = await Promise.all([
-        fetchAllCharges(acct.id, thirtyOneDaysAgo),
-        acct.marketplace ? fetchAllTransfers(acct.id, thirtyOneDaysAgo) : Promise.resolve([]),
-      ]);
-      return { acct, charges, transfers };
-    })
+    ACCOUNTS.map(acct => refreshAccount(acct, existingCache, now))
   );
 
-  for (const result of accountResults) {
+  for (let i = 0; i < ACCOUNTS.length; i++) {
+    const acct = ACCOUNTS[i];
+    const result = accountResults[i];
     if (result.status === 'rejected') {
-      console.error('Account fetch failed:', result.reason?.message);
+      console.error(`Error processing ${acct.name}:`, result.reason?.message);
+      results[acct.name] = { error: result.reason?.message };
       continue;
     }
-    const { acct, charges, transfers } = result.value;
     try {
-      const succeeded = charges.filter(c => c.status === 'succeeded');
-      const metrics = computeMetrics(succeeded, transfers, now);
-
-      // Preserve all-time totals: use existing cache values if they're higher
-      // (31-day window only captures recent data; all-time accumulates)
-      const prev = existingCache[acct.name];
-      if (prev) {
-        metrics.net = Math.max(metrics.net, prev.net_cents || 0);
-        metrics.gross = Math.max(metrics.gross, prev.gross_cents || 0);
-        metrics.transfers = Math.max(metrics.transfers, prev.transfers_cents || 0);
-        metrics.sold = Math.max(metrics.sold, prev.products_sold || 0);
-      }
-      metrics.cachedThrough = now;
-
+      const metrics = result.value;
       await upsertCache(acct.name, metrics);
       results[acct.name] = { net: metrics.net, d30: metrics.d30, d7: metrics.d7, sold: metrics.sold };
     } catch (e) {
-      console.error(`Error processing ${acct.name}:`, e.message);
+      console.error(`Error upserting ${acct.name}:`, e.message);
       results[acct.name] = { error: e.message };
     }
   }
 
-  // Felix CM from Supabase purchases
+  // Felix CM from Supabase purchases (always fast — single query)
   try {
     const pRes = await fetch(
       `${SUPABASE_URL}/rest/v1/personas?select=id&creator_id=eq.${FELIX_CREATOR_ID}`,
