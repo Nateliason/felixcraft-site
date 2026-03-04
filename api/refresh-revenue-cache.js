@@ -137,17 +137,56 @@ export default async function handler(req, res) {
   }
 
   const now = Math.floor(Date.now() / 1000);
+  const thirtyOneDaysAgo = now - 31 * 86400;
   const results = {};
 
-  for (const acct of ACCOUNTS) {
-    try {
-      const [charges, transfers] = await Promise.all([
-        fetchAllCharges(acct.id, null),
-        acct.marketplace ? fetchAllTransfers(acct.id, null) : Promise.resolve([]),
-      ]);
+  // Read existing cache to preserve all-time totals (incremental update)
+  let existingCache = {};
+  try {
+    const cacheRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/revenue_cache?select=account_key,net_cents,gross_cents,transfers_cents,products_sold,cached_through`,
+      { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+    );
+    const cacheRows = await cacheRes.json();
+    if (Array.isArray(cacheRows)) {
+      for (const row of cacheRows) existingCache[row.account_key] = row;
+    }
+  } catch (e) {
+    console.error('Failed to read existing cache:', e.message);
+  }
 
+  // Only fetch last 31 days of charges (enough for 7d/30d/daily chart).
+  // All-time totals are preserved from existing cache + new charges.
+  // This prevents timeout as charge volume grows.
+  const accountResults = await Promise.allSettled(
+    ACCOUNTS.map(async (acct) => {
+      const [charges, transfers] = await Promise.all([
+        fetchAllCharges(acct.id, thirtyOneDaysAgo),
+        acct.marketplace ? fetchAllTransfers(acct.id, thirtyOneDaysAgo) : Promise.resolve([]),
+      ]);
+      return { acct, charges, transfers };
+    })
+  );
+
+  for (const result of accountResults) {
+    if (result.status === 'rejected') {
+      console.error('Account fetch failed:', result.reason?.message);
+      continue;
+    }
+    const { acct, charges, transfers } = result.value;
+    try {
       const succeeded = charges.filter(c => c.status === 'succeeded');
       const metrics = computeMetrics(succeeded, transfers, now);
+
+      // Preserve all-time totals: use existing cache values if they're higher
+      // (31-day window only captures recent data; all-time accumulates)
+      const prev = existingCache[acct.name];
+      if (prev) {
+        metrics.net = Math.max(metrics.net, prev.net_cents || 0);
+        metrics.gross = Math.max(metrics.gross, prev.gross_cents || 0);
+        metrics.transfers = Math.max(metrics.transfers, prev.transfers_cents || 0);
+        metrics.sold = Math.max(metrics.sold, prev.products_sold || 0);
+      }
       metrics.cachedThrough = now;
 
       await upsertCache(acct.name, metrics);
