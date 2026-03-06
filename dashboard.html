@@ -512,7 +512,11 @@
             };
           });
 
-          const sCtx = document.getElementById('stream-chart').getContext('2d');
+          // Destroy existing chart before re-creating (fixes "Canvas is already in use" error)
+          const chartCanvas = document.getElementById('stream-chart');
+          const existingChart = Chart.getChart(chartCanvas);
+          if (existingChart) existingChart.destroy();
+          const sCtx = chartCanvas.getContext('2d');
           new Chart(sCtx, {
             type: 'bar',
             data: {
