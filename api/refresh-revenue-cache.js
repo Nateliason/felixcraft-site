@@ -273,7 +273,7 @@ export default async function handler(req, res) {
 
         const data = { net: allTimeNet, gross: allTimeNet, transfers: 0, sold: allTimeSold, d7, d30, d30Sold, daily, cachedThrough: now };
         await upsertCache('felix_cm', data);
-        results.felix_cm = { net: allTimeNet, d30, d7, sold: allTimeSold };
+        results.felix_cm = { net: allTimeNet, d30, d7, sold: allTimeSold, _debug: { recentCount: recentPurchases.length, dailyDates: Object.keys(dailyMap), queryFilter: thirtyOneDaysAgo } };
       }
     }
   } catch (e) {
