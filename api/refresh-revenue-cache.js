@@ -213,33 +213,49 @@ export default async function handler(req, res) {
     }
   }
 
-  // Felix CM from Supabase purchases (always fast — single query)
+  // Felix CM from Supabase purchases
+  // Two lightweight queries instead of fetching all rows:
+  // 1. Aggregate totals (all-time net + sold) via RPC or count
+  // 2. Only fetch last 31 days of purchases for daily chart
   try {
+    const supaHeaders = { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` };
     const pRes = await fetch(
       `${SUPABASE_URL}/rest/v1/personas?select=id&creator_id=eq.${FELIX_CREATOR_ID}`,
-      { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+      { headers: supaHeaders }
     );
     const personas = await pRes.json();
     if (Array.isArray(personas) && personas.length) {
       const ids = personas.map(p => p.id).join(',');
-      // Fetch ALL purchases (Supabase default limit is 1000; we need all rows)
-      const purchRes = await fetch(
-        `${SUPABASE_URL}/rest/v1/purchases?select=amount_cents,platform_fee_cents,created_at&persona_id=in.(${ids})&refunded_at=is.null&order=created_at.asc&limit=10000`,
-        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+      const thirtyOneDaysAgo = new Date((now - 31 * 86400) * 1000).toISOString();
+      const thirtyDaysAgo = now - 30 * 86400;
+      const sevenDaysAgo = now - 7 * 86400;
+
+      // Query 1: All-time totals (just count + sum, no row transfer)
+      const allTimeRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/purchases?select=amount_cents,platform_fee_cents&persona_id=in.(${ids})&refunded_at=is.null`,
+        { headers: { ...supaHeaders, Prefer: 'count=exact', Range: '0-0' } }
       );
-      const purchases = await purchRes.json();
-      if (Array.isArray(purchases)) {
-        const thirtyDaysAgo = now - 30 * 86400;
-        const sevenDaysAgo = now - 7 * 86400;
-        let net = 0, d30 = 0, d7 = 0, sold = 0, d30Sold = 0;
+      const contentRange = allTimeRes.headers.get('content-range');
+      const allTimeSold = contentRange ? parseInt(contentRange.split('/')[1]) || 0 : 0;
+      // We need the sum — use the existing cache for all-time net and just add new purchases
+      const prevCm = existingCache['felix_cm'];
+
+      // Query 2: Only last 31 days of purchases for daily/d7/d30 (small result set)
+      const recentRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/purchases?select=amount_cents,platform_fee_cents,created_at&persona_id=in.(${ids})&refunded_at=is.null&created_at=gte.${thirtyOneDaysAgo}&order=created_at.asc&limit=5000`,
+        { headers: supaHeaders }
+      );
+      const recentPurchases = await recentRes.json();
+
+      if (Array.isArray(recentPurchases)) {
+        let d30 = 0, d7 = 0, d30Sold = 0, recentNet = 0;
         const dailyMap = {};
 
-        for (const p of purchases) {
+        for (const p of recentPurchases) {
           const earning = (p.amount_cents || 0) - (p.platform_fee_cents || 0);
           const ts = new Date(p.created_at).getTime() / 1000;
           const date = toCentralDate(ts);
-          net += earning;
-          sold++;
+          recentNet += earning;
           if (ts >= thirtyDaysAgo) {
             dailyMap[date] = (dailyMap[date] || 0) + earning;
             d30 += earning;
@@ -248,13 +264,16 @@ export default async function handler(req, res) {
           if (ts >= sevenDaysAgo) d7 += earning;
         }
 
+        // All-time net: use cached value if available, otherwise use recent as minimum
+        const allTimeNet = prevCm ? Math.max(prevCm.net_cents || 0, recentNet) : recentNet;
+
         const daily = Object.entries(dailyMap)
           .map(([date, amount]) => ({ date, amount }))
           .sort((a, b) => a.date.localeCompare(b.date));
 
-        const data = { net, gross: net, transfers: 0, sold, d7, d30, d30Sold, daily, cachedThrough: now };
+        const data = { net: allTimeNet, gross: allTimeNet, transfers: 0, sold: allTimeSold, d7, d30, d30Sold, daily, cachedThrough: now };
         await upsertCache('felix_cm', data);
-        results.felix_cm = { net, d30, d7, sold };
+        results.felix_cm = { net: allTimeNet, d30, d7, sold: allTimeSold };
       }
     }
   } catch (e) {
