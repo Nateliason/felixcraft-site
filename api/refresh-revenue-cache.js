@@ -240,12 +240,22 @@ export default async function handler(req, res) {
       // We need the sum — use the existing cache for all-time net and just add new purchases
       const prevCm = existingCache['felix_cm'];
 
-      // Query 2: Only last 31 days of purchases for daily/d7/d30 (small result set)
-      const recentRes = await fetch(
-        `${SUPABASE_URL}/rest/v1/purchases?select=amount_cents,platform_fee_cents,created_at&persona_id=in.(${ids})&refunded_at=is.null&created_at=gte.${thirtyOneDaysAgo}&order=created_at.asc&limit=5000`,
-        { headers: supaHeaders }
-      );
-      const recentPurchases = await recentRes.json();
+      // Query 2: Last 31 days of purchases for daily/d7/d30
+      // Supabase max-rows defaults to 1000; paginate to get all
+      let recentPurchases = [];
+      let offset = 0;
+      const pageSize = 1000;
+      while (true) {
+        const recentRes = await fetch(
+          `${SUPABASE_URL}/rest/v1/purchases?select=amount_cents,platform_fee_cents,created_at&persona_id=in.(${ids})&refunded_at=is.null&created_at=gte.${thirtyOneDaysAgo}&order=created_at.asc&limit=${pageSize}&offset=${offset}`,
+          { headers: supaHeaders }
+        );
+        const page = await recentRes.json();
+        if (!Array.isArray(page) || page.length === 0) break;
+        recentPurchases = recentPurchases.concat(page);
+        if (page.length < pageSize) break;
+        offset += pageSize;
+      }
 
       if (Array.isArray(recentPurchases)) {
         let d30 = 0, d7 = 0, d30Sold = 0, recentNet = 0;
@@ -273,7 +283,7 @@ export default async function handler(req, res) {
 
         const data = { net: allTimeNet, gross: allTimeNet, transfers: 0, sold: allTimeSold, d7, d30, d30Sold, daily, cachedThrough: now };
         await upsertCache('felix_cm', data);
-        results.felix_cm = { net: allTimeNet, d30, d7, sold: allTimeSold, _debug: { recentCount: recentPurchases.length, dailyDates: Object.keys(dailyMap), queryFilter: thirtyOneDaysAgo } };
+        results.felix_cm = { net: allTimeNet, d30, d7, sold: allTimeSold };
       }
     }
   } catch (e) {
