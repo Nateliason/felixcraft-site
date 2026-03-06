@@ -222,8 +222,9 @@ export default async function handler(req, res) {
     const personas = await pRes.json();
     if (Array.isArray(personas) && personas.length) {
       const ids = personas.map(p => p.id).join(',');
+      // Fetch ALL purchases (Supabase default limit is 1000; we need all rows)
       const purchRes = await fetch(
-        `${SUPABASE_URL}/rest/v1/purchases?select=amount_cents,platform_fee_cents,created_at&persona_id=in.(${ids})&refunded_at=is.null`,
+        `${SUPABASE_URL}/rest/v1/purchases?select=amount_cents,platform_fee_cents,created_at&persona_id=in.(${ids})&refunded_at=is.null&order=created_at.asc&limit=10000`,
         { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
       );
       const purchases = await purchRes.json();
