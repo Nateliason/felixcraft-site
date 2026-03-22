@@ -99,33 +99,87 @@ async function readExistingCache() {
 /**
  * Incremental refresh for a Stripe account.
  *
- * 1. Read existing cache row (has all-time totals + cached_through timestamp)
- * 2. Fetch only NEW charges/transfers since cached_through
- * 3. Add new amounts to stored all-time totals
- * 4. Recompute 7d/30d/daily from the last 31 days of charges (always fresh)
+ * Hot path (cache is <31 days old): fetch only new charges since cachedThrough,
+ * merge with stored daily_json for the chart. Typically 1 API call per account.
  *
- * If no cache exists yet (first run), fetches everything.
+ * Cold path (no cache or cache >31 days old): fetch full 31-day window.
  */
 async function refreshAccount(acct, existingCache, now) {
   const prev = existingCache[acct.name];
   const thirtyOneDaysAgo = now - 31 * 86400;
   const thirtyDaysAgo = now - 30 * 86400;
   const sevenDaysAgo = now - 7 * 86400;
-
-  // Determine how far back to fetch for incremental all-time update
-  // Use the earlier of cached_through or 31 days ago so we always
-  // have full 30d data for the chart
   const cachedThrough = prev?.cached_through || 0;
-  const incrementalSince = Math.min(cachedThrough, thirtyOneDaysAgo);
+
+  // Hot path: cache exists and is within last 31 days — only fetch new data
+  const isWarm = cachedThrough > thirtyOneDaysAgo;
+  const fetchSince = isWarm ? cachedThrough : thirtyOneDaysAgo;
 
   const [charges, transfers] = await Promise.all([
-    fetchChargesSince(acct.id, incrementalSince),
-    acct.marketplace ? fetchTransfersSince(acct.id, incrementalSince) : Promise.resolve([]),
+    fetchChargesSince(acct.id, fetchSince),
+    acct.marketplace ? fetchTransfersSince(acct.id, fetchSince) : Promise.resolve([]),
   ]);
 
   const succeeded = charges.filter(c => c.status === 'succeeded');
 
-  // ── Compute 7d / 30d / daily chart (from fetched window) ──
+  if (isWarm) {
+    // ── HOT PATH: merge new data with cached daily_json ──
+    // Start with stored daily data
+    const storedDaily = prev?.daily_json ? JSON.parse(prev.daily_json) : [];
+    const dailyMap = {};
+    const cutoffDate = toCentralDate(thirtyDaysAgo);
+    for (const entry of storedDaily) {
+      if (entry.date >= cutoffDate) dailyMap[entry.date] = entry.amount;
+    }
+
+    // Add new charges to daily map
+    for (const c of succeeded) {
+      if (c.created <= cachedThrough) continue; // already counted
+      const net = c.amount - (c.amount_refunded || 0);
+      const date = toCentralDate(c.created);
+      dailyMap[date] = (dailyMap[date] || 0) + net;
+    }
+    for (const t of transfers) {
+      if (t.created <= cachedThrough) continue;
+      const date = toCentralDate(t.created);
+      dailyMap[date] = (dailyMap[date] || 0) - t.amount;
+    }
+
+    const daily = Object.entries(dailyMap)
+      .filter(([date]) => date >= cutoffDate)
+      .map(([date, amount]) => ({ date, amount }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    // Recompute d7/d30 from merged daily map
+    let d30 = 0, d7 = 0, d30Sold = 0;
+    const d7Date = toCentralDate(sevenDaysAgo);
+    for (const [date, amount] of Object.entries(dailyMap)) {
+      if (date >= cutoffDate) d30 += amount;
+      if (date >= d7Date) d7 += amount;
+    }
+
+    // Count d30 sold from stored + new
+    d30Sold = (prev?.d30_sold || 0);
+    const newInWindow = succeeded.filter(c => c.created > cachedThrough && c.created >= thirtyDaysAgo);
+    d30Sold += newInWindow.length;
+
+    // Incremental all-time totals
+    const newCharges = succeeded.filter(c => c.created > cachedThrough);
+    const newTransfers = transfers.filter(t => t.created > cachedThrough);
+    const newGross = newCharges.reduce((s, c) => s + c.amount - (c.amount_refunded || 0), 0);
+    const newTransferAmt = newTransfers.reduce((s, t) => s + t.amount, 0);
+
+    return {
+      net: (prev.net_cents || 0) + newGross - newTransferAmt,
+      gross: (prev.gross_cents || 0) + newGross,
+      transfers: (prev.transfers_cents || 0) + newTransferAmt,
+      sold: (prev.products_sold || 0) + newCharges.length,
+      d7, d30, d30Sold, daily,
+      cachedThrough: now,
+    };
+  }
+
+  // ── COLD PATH: full 31-day rebuild ──
   const dailyMap = {};
   let d30Gross = 0, d7Gross = 0, d30Sold = 0;
 
@@ -150,29 +204,17 @@ async function refreshAccount(acct, existingCache, now) {
     .map(([date, amount]) => ({ date, amount }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  // ── Compute all-time totals (incremental) ──
-  // New charges since cached_through contribute to all-time totals
-  const newCharges = succeeded.filter(c => c.created > cachedThrough);
-  const newTransfers = transfers.filter(t => t.created > cachedThrough);
-
-  const newGross = newCharges.reduce((s, c) => s + c.amount - (c.amount_refunded || 0), 0);
-  const newTransferAmt = newTransfers.reduce((s, t) => s + t.amount, 0);
-  const newSold = newCharges.length;
-
-  const allTimeNet = (prev?.net_cents || 0) + newGross - newTransferAmt;
-  const allTimeGross = (prev?.gross_cents || 0) + newGross;
-  const allTimeTransfers = (prev?.transfers_cents || 0) + newTransferAmt;
-  const allTimeSold = (prev?.products_sold || 0) + newSold;
+  const allTimeGross = succeeded.reduce((s, c) => s + c.amount - (c.amount_refunded || 0), 0);
+  const allTimeTransferAmt = transfers.reduce((s, t) => s + t.amount, 0);
 
   return {
-    net: allTimeNet,
+    net: allTimeGross - allTimeTransferAmt,
     gross: allTimeGross,
-    transfers: allTimeTransfers,
-    sold: allTimeSold,
+    transfers: allTimeTransferAmt,
+    sold: succeeded.length,
     d7: d7Gross - d7Transfers,
     d30: d30Gross - d30Transfers,
-    d30Sold,
-    daily,
+    d30Sold, daily,
     cachedThrough: now,
   };
 }
