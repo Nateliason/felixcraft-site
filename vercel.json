@@ -10,7 +10,7 @@
       "maxDuration": 15
     },
     "api/refresh-revenue-cache.js": {
-      "maxDuration": 120
+      "maxDuration": 300
     }
   },
   "crons": [
