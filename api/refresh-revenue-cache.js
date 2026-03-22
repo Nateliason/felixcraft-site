@@ -228,9 +228,10 @@ export default async function handler(req, res) {
 
   const now = Math.floor(Date.now() / 1000);
   const results = {};
+  const forceCold = req.query?.force === 'cold';
 
-  // Read existing cache for incremental updates
-  const existingCache = await readExistingCache();
+  // Read existing cache for incremental updates (skip if forcing cold rebuild)
+  const existingCache = forceCold ? {} : await readExistingCache();
 
   // Process all Stripe accounts in parallel
   const accountResults = await Promise.allSettled(
