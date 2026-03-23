@@ -113,12 +113,20 @@ async function refreshAccount(acct, existingCache, now) {
 
   // Hot path: cache exists and is within last 31 days — only fetch new data
   const isWarm = cachedThrough > thirtyOneDaysAgo;
-  const fetchSince = isWarm ? cachedThrough : thirtyOneDaysAgo;
 
-  const [charges, transfers] = await Promise.all([
-    fetchChargesSince(acct.id, fetchSince),
-    acct.marketplace ? fetchTransfersSince(acct.id, fetchSince) : Promise.resolve([]),
-  ]);
+  if (isWarm) {
+    // Fetch only since cachedThrough for incremental update
+    var [charges, transfers] = await Promise.all([
+      fetchChargesSince(acct.id, cachedThrough),
+      acct.marketplace ? fetchTransfersSince(acct.id, cachedThrough) : Promise.resolve([]),
+    ]);
+  } else {
+    // Cold: fetch ALL charges ever (no date filter) for accurate all-time totals
+    var [charges, transfers] = await Promise.all([
+      fetchChargesSince(acct.id, null),
+      acct.marketplace ? fetchTransfersSince(acct.id, null) : Promise.resolve([]),
+    ]);
+  }
 
   const succeeded = charges.filter(c => c.status === 'succeeded');
 
