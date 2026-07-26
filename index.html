@@ -544,6 +544,103 @@
     .about-text p + p { margin-top: 1rem; }
     .about-text strong { color: var(--text); font-weight: 500; }
 
+    /* Marketplace Banner */
+    .marketplace-banner {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 0 2rem 5rem;
+    }
+
+    .marketplace-banner-inner {
+      background: var(--surface);
+      border: 1px solid var(--border-accent);
+      border-radius: 16px;
+      padding: 2.5rem 3rem;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 2rem;
+      align-items: center;
+      transition: border-color 0.3s;
+    }
+    .marketplace-banner-inner:hover {
+      border-color: var(--accent);
+    }
+
+    .marketplace-banner-label {
+      font-size: 0.65rem;
+      font-weight: 600;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.6rem;
+    }
+
+    .marketplace-banner h2 {
+      font-family: 'Fraunces', serif;
+      font-size: 1.5rem;
+      font-weight: 400;
+      line-height: 1.3;
+      margin-bottom: 0.6rem;
+    }
+
+    .marketplace-banner p {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+      max-width: 500px;
+    }
+
+    .marketplace-banner .listing-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+
+    .listing-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 0.3rem 0.8rem;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    .listing-pill:hover { border-color: var(--accent); color: var(--text); }
+
+    .marketplace-banner-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      align-items: flex-end;
+      flex-shrink: 0;
+    }
+
+    .browse-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 0.7rem 1.4rem;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      text-decoration: none;
+      transition: border-color 0.2s, color 0.2s;
+      white-space: nowrap;
+    }
+    .browse-btn:hover { border-color: var(--accent); color: var(--text); }
+
+    @media (max-width: 768px) {
+      .marketplace-banner-inner { grid-template-columns: 1fr; padding: 2rem; }
+      .marketplace-banner-actions { align-items: flex-start; }
+    }
+
     /* CTA */
     .cta-section {
       max-width: 860px;
@@ -661,6 +758,37 @@
       document.getElementById('revenue-proof').style.display = 'block';
     }).catch(() => {});
   </script>
+
+  <!-- Marketplace Banner — above the fold ClawMart CTA -->
+  <section class="marketplace-banner">
+    <div class="marketplace-banner-inner">
+      <div>
+        <div class="marketplace-banner-label">Claw Mart — App Store for AI Agents</div>
+        <h2>Skip the blueprint.<br>Install the working system.</h2>
+        <p>Claw Mart is where AI operators share what actually works. Install Felix directly — memory, tools, rhythms, and constraints already wired up — or browse 50+ skills and personas built by operators who ship with AI every day.</p>
+        <div class="listing-pills">
+          <a href="https://shopclawmart.com/listings/felix-04f42dee?utm_source=felixcraft&utm_medium=hero_banner&utm_campaign=hire_felix_operator" class="listing-pill" target="_blank">
+            📋 Felix (Full Operator)
+          </a>
+          <a href="https://shopclawmart.com/listings/gateway-observability-pack?utm_source=felixcraft&utm_medium=hero_banner&utm_campaign=browse_skills" class="listing-pill" target="_blank">
+            🔭 Observability Pack
+          </a>
+          <a href="https://shopclawmart.com?utm_source=felixcraft&utm_medium=hero_banner&utm_campaign=browse_all" class="listing-pill" target="_blank">
+            + 50 more →
+          </a>
+        </div>
+      </div>
+      <div class="marketplace-banner-actions">
+        <a href="https://shopclawmart.com/listings/felix-04f42dee?utm_source=felixcraft&utm_medium=hero_banner&utm_campaign=hire_felix_operator&utm_content=primary_cta" class="buy-btn" target="_blank">
+          Hire Felix
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 13L13 1M13 1H3M13 1V11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <a href="https://shopclawmart.com?utm_source=felixcraft&utm_medium=hero_banner&utm_campaign=browse_clawmart&utm_content=browse_btn" class="browse-btn" target="_blank">
+          Browse all listings →
+        </a>
+      </div>
+    </div>
+  </section>
 
   <div class="divider"></div>
 
@@ -795,7 +923,7 @@
 
   <div class="divider"></div>
 
-  <section class="about-section">
+  <section class="about-section" style="padding-top:0; padding-bottom:2rem">
     <div class="section-label">Marketplace</div>
     <div class="about-grid">
       <div class="about-text">
