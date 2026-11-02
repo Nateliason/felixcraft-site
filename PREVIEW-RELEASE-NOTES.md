@@ -29,3 +29,8 @@ No pricing, testimonials, audience figures, or performance results were invented
 - `python scripts/check-preview.py` — source-level links, GA uniqueness, structured JSON, preview indexing guards, byte-identical legacy pages and unchanged backend config.
 - `node scripts/test-ui.cjs` — stub-DOM interaction tests (not a browser test): category filters, repeat generation, copying, menu open/close.
 - `/preview-mobile.html` is a preview-only 390px iframe harness for actual responsive rendering QA when the browser does not expose viewport resizing. Remove it before a production release.
+
+## Beginner-onramp revision (November 2)
+The homepage now prioritizes a guided first attempt on familiar work rather than an expert workflow catalog. The new chooser displays prewritten fictional email, meeting-note, and research-comparison exercises. Copying a prompt includes the fictional source material; opening ChatGPT is a normal external link, not an integration or automatic submission. Output examples are authored illustrations, not test results. No additional AI call, input capture, storage, or backend was added. The previous brief builder remains available as a secondary expandable tool, preserving article `/#tools` links. Existing articles and legacy pages remain unchanged.
+
+Additional verification: `node scripts/test-exercises.cjs`. New copy must have retained Argon writer and Opus review artifacts before preview handoff.
