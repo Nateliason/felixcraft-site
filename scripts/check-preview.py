@@ -9,11 +9,11 @@ class Check(HTMLParser):
   if tag=='a' and a.get('href','').startswith('/'):
    q=a['href'].split('#')[0].split('?')[0]
    assert not q or q=='/dashboard' or (p/q.lstrip('/')).exists(),q
-for f in [p/'index.html',*p.glob('workflows/*.html')]:
+for f in [p/'index.html',p/'practice.html',*p.glob('workflows/*.html')]:
  s=f.read_text();Check().feed(s);assert s.count('<h1>')==1,f
  assert 'noindex,nofollow' in s,f
  for block in __import__('re').findall(r'<script type="application/ld\+json">(.*?)</script>',s):json.loads(block)
-for f in [p/'index.html',p/'how-to-hire-an-ai.html',p/'dashboard.html',p/'crypto-claim.html',p/'168a1eb2dd92fd596ac191d4/index.html',*p.glob('workflows/*.html')]:
+for f in [p/'index.html',p/'practice.html',p/'how-to-hire-an-ai.html',p/'dashboard.html',p/'crypto-claim.html',p/'168a1eb2dd92fd596ac191d4/index.html',*p.glob('workflows/*.html')]:
  s=f.read_text();assert s.count('gtag/js?id=G-M0W5XXDYX0')==1,f
  assert s.count("gtag('config', 'G-M0W5XXDYX0')")==1,f
 for f in ['dashboard.html','crypto-claim.html','168a1eb2dd92fd596ac191d4/index.html']:

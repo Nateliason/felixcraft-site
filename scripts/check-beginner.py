@@ -2,7 +2,7 @@ from pathlib import Path
 from html.parser import HTMLParser
 import re,html
 root=Path(__file__).resolve().parents[1]
-s=(root/'index.html').read_text()
+s=(root/'practice.html').read_text()
 assert '[HUMAN INPUT NEEDED]' not in s,'Unresolved editorial placeholder'
 assert '[implementation-facts' not in s and '[openai-starting-instructions]' not in s,'Internal evidence markers'
 for key in ['email','notes','research']:
